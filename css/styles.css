@@ -25,6 +25,72 @@ html, body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Скрывающаяся верхняя панель (top-panel) */
+.top-panel {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  background-color: rgba(0, 0, 0, 0.78);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: transform;
+}
+
+.top-panel.top-panel--hidden {
+  transform: translateY(-100%);
+}
+
+.top-panel-inner {
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 14px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.top-panel-inner--between {
+  justify-content: space-between;
+}
+
+.icon-btn {
+  color: var(--text-dim);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  text-decoration: none;
+  transition: color 0.2s ease, filter 0.2s ease;
+}
+
+.icon-btn .gear-icon {
+  transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.icon-btn:hover,
+.icon-btn.active {
+  color: var(--text-main);
+  filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.65));
+}
+
+.icon-btn:hover .gear-icon {
+  transform: rotate(45deg);
+}
+
+.back-link {
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  text-decoration: none;
+  letter-spacing: 0.08em;
+  transition: color 0.2s ease;
+}
+
+.back-link:hover {
+  color: var(--text-main);
+}
 
 /* Боковые синусоидные ASCII-графики */
 .ascii-side {
@@ -147,7 +213,8 @@ html, body {
 }
 
 /* Лента новостей и разделители времени */
-.news-feed {
+.news-feed,
+.settings-content {
   flex: 1;
 }
 
@@ -175,7 +242,7 @@ html, body {
     max-height 0.36s cubic-bezier(0.4, 0, 0.2, 1),
     padding 0.32s ease,
     margin 0.32s ease;
-  max-height: 2000px; /* было 900px */
+  max-height: 2000px;
   overflow: hidden;
 }
 

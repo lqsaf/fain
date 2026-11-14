@@ -4,28 +4,38 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>fain — free ai news</title>
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="./css/styles.css" />
 </head>
 <body>
   <!-- Боковые ASCII синусоидные графики для ПК -->
   <pre id="ascii-left" class="ascii-side ascii-left" aria-hidden="true"></pre>
   <pre id="ascii-right" class="ascii-side ascii-right" aria-hidden="true"></pre>
 
+  <!-- Скрывающаяся верхняя панель -->
+  <nav id="top-panel" class="top-panel" aria-label="Быстрая навигация">
+    <div class="top-panel-inner">
+      <a href="./settings.html" class="icon-btn settings-btn" aria-label="Настройки" title="Настройки">
+        <svg class="gear-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+      </a>
+    </div>
+  </nav>
+
   <main class="container">
     <header class="site-header">
-      
       <svg class="site-logo" viewBox="0 0 1000 1000" aria-label="fain logo" role="img">
         <polygon
           fill="currentColor"
           points="638,170 638,420 671,362 830,638 580,638 638,671 362,830 362,580 329,638 170,362 420,362 362,329"
         />
       </svg>
-      
+
       <div class="site-title-group">
         <h1 class="logo">fain</h1>
         <p class="subtitle">free ai news</p>
       </div>
-      
     </header>
 
     <section id="news-feed" class="news-feed" aria-live="polite">
@@ -48,6 +58,19 @@
     </footer>
   </main>
 
-  <script src="script.js"></script>
+  <!--
+    Основной способ подключения (GitHub Pages / локальный сервер вроде VS Code Live Server или `npx serve`):
+  -->
+  <script type="module" src="./js/main.js"></script>
+
+  <!--
+    Для запуска напрямую через двойной клик по файлу (протокол file:// без сервера):
+    1. Удалите ключевые слова `export` и `import {...} from ...` в файлах внутри папки js/
+    2. Замените тег <script type="module" src="./js/main.js"></script> на поочередное подключение:
+       <script defer src="./js/ui.js"></script>
+       <script defer src="./js/data.js"></script>
+       <script defer src="./js/feed.js"></script>
+       <script defer src="./js/main.js"></script>
+  -->
 </body>
 </html>
