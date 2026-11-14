@@ -14,7 +14,7 @@
   <!-- Скрывающаяся верхняя панель -->
   <nav id="top-panel" class="top-panel" aria-label="Быстрая навигация">
     <div class="top-panel-inner">
-      <a href="./settings.html" class="icon-btn settings-btn" aria-label="Настройки" title="Настройки">
+      <a href="./settings.html" id="nav-settings-link" class="icon-btn settings-btn" aria-label="Настройки" title="Настройки">
         <svg class="gear-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="3"></circle>
           <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
@@ -39,7 +39,7 @@
     </header>
 
     <section id="news-feed" class="news-feed" aria-live="polite">
-      <div class="status-line">синхронизация потока...</div>
+      <div id="initial-status" class="status-line">синхронизация потока...</div>
     </section>
 
     <footer class="site-footer">
@@ -54,23 +54,10 @@
           <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
         </svg>
       </a>
-      <p class="updated-line">обновлено: <span id="updated-date">—</span></p>
+      <p class="updated-line"><span id="updated-label">обновлено:</span> <span id="updated-date">—</span></p>
     </footer>
   </main>
 
-  <!--
-    Основной способ подключения (GitHub Pages / локальный сервер вроде VS Code Live Server или `npx serve`):
-  -->
   <script type="module" src="./js/main.js"></script>
-
-  <!--
-    Для запуска напрямую через двойной клик по файлу (протокол file:// без сервера):
-    1. Удалите ключевые слова `export` и `import {...} from ...` в файлах внутри папки js/
-    2. Замените тег <script type="module" src="./js/main.js"></script> на поочередное подключение:
-       <script defer src="./js/ui.js"></script>
-       <script defer src="./js/data.js"></script>
-       <script defer src="./js/feed.js"></script>
-       <script defer src="./js/main.js"></script>
-  -->
 </body>
 </html>

@@ -1,17 +1,69 @@
-:root {
+@view-transition {
+  navigation: auto;
+}
+
+:root,
+[data-theme="dark"] {
   --bg: #000000;
   --text-main: #ffffff;
   --text-muted: #9a9a9a;
+  --text-hover: #cccccc;
   --text-dim: #525252;
   --ascii-color: #525252;
   --border-subtle: #1f1f1f;
   --analysis-bg: #0a0a0a;
+  --analysis-text: #d4d4d4;
+  --panel-bg: rgba(0, 0, 0, 0.78);
+  --glow-color: rgba(255, 255, 255, 0.65);
+}
+
+[data-theme="light"] {
+  --bg: #f4f4f0;
+  --text-main: #121212;
+  --text-muted: #4a4a46;
+  --text-hover: #000000;
+  --text-dim: #85857f;
+  --ascii-color: #b8b8b0;
+  --border-subtle: #ddddd5;
+  --analysis-bg: #eaeae2;
+  --analysis-text: #222220;
+  --panel-bg: rgba(244, 244, 240, 0.82);
+  --glow-color: rgba(0, 0, 0, 0.25);
+}
+
+[data-theme="amber"] {
+  --bg: #080500;
+  --text-main: #ffb000;
+  --text-muted: #c88700;
+  --text-hover: #ffc94d;
+  --text-dim: #754c00;
+  --ascii-color: #573800;
+  --border-subtle: #261800;
+  --analysis-bg: #120c00;
+  --analysis-text: #e69d00;
+  --panel-bg: rgba(8, 5, 0, 0.82);
+  --glow-color: rgba(255, 176, 0, 0.55);
+}
+
+[data-theme="phosphor"] {
+  --bg: #020804;
+  --text-main: #33ff66;
+  --text-muted: #22b847;
+  --text-hover: #66ff8c;
+  --text-dim: #136928;
+  --ascii-color: #0f4d1e;
+  --border-subtle: #0b2912;
+  --analysis-bg: #061409;
+  --analysis-text: #2be058;
+  --panel-bg: rgba(2, 8, 4, 0.82);
+  --glow-color: rgba(51, 255, 102, 0.55);
 }
 
 * {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+  -webkit-tap-highlight-color: transparent;
 }
 
 html, body {
@@ -23,6 +75,7 @@ html, body {
   min-height: 100vh;
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 /* Скрывающаяся верхняя панель (top-panel) */
@@ -32,11 +85,12 @@ html, body {
   left: 0;
   right: 0;
   z-index: 10;
-  background-color: rgba(0, 0, 0, 0.78);
+  background-color: var(--panel-bg);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.2s ease;
   will-change: transform;
+  view-transition-name: top-panel;
 }
 
 .top-panel.top-panel--hidden {
@@ -73,7 +127,7 @@ html, body {
 .icon-btn:hover,
 .icon-btn.active {
   color: var(--text-main);
-  filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.65));
+  filter: drop-shadow(0 0 8px var(--glow-color));
 }
 
 .icon-btn:hover .gear-icon {
@@ -114,10 +168,16 @@ html, body {
 
 .ascii-left {
   left: 16px;
+  view-transition-name: ascii-left;
 }
 
 .ascii-right {
   right: 16px;
+  view-transition-name: ascii-right;
+}
+
+.ascii-side.ascii-hidden {
+  display: none !important;
 }
 
 @media (max-width: 1120px) {
@@ -246,7 +306,7 @@ html, body {
   overflow: hidden;
 }
 
-/* Тег над заголовком (просто текст без рамок) */
+/* Тег над заголовком */
 .news-tag {
   display: block;
   font-size: 0.75rem;
@@ -277,7 +337,7 @@ html, body {
   border-bottom-color: var(--text-main);
 }
 
-/* Раскрывающийся блок ИИ-анализа в ЧБ стиле */
+/* Раскрывающийся блок ИИ-анализа */
 .news-analysis-wrap {
   max-height: 0;
   opacity: 0;
@@ -299,7 +359,7 @@ html, body {
   border-left: 2px solid var(--text-main);
   padding: 12px 14px;
   font-size: 0.88rem;
-  color: #d4d4d4;
+  color: var(--analysis-text);
 }
 
 .analysis-label {
@@ -321,7 +381,7 @@ html, body {
 }
 
 .news-description:hover {
-  color: #cccccc;
+  color: var(--text-hover);
 }
 
 /* Нижняя строка со ссылкой на источник справа */
@@ -366,6 +426,80 @@ html, body {
   letter-spacing: 0.08em;
 }
 
+/* Страница настроек */
+.settings-block {
+  padding: 22px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.settings-label {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  letter-spacing: 0.14em;
+  text-transform: lowercase;
+  margin-bottom: 14px;
+}
+
+.settings-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.term-btn {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
+  font-family: inherit;
+  font-size: 0.84rem;
+  padding: 7px 14px;
+  cursor: pointer;
+  letter-spacing: 0.06em;
+  text-transform: lowercase;
+  transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.term-btn:hover {
+  color: var(--text-main);
+  border-color: var(--text-dim);
+}
+
+.term-btn.active {
+  color: var(--bg);
+  background-color: var(--text-main);
+  border-color: var(--text-main);
+}
+
+.custom-css-area {
+  width: 100%;
+  min-height: 120px;
+  background-color: var(--analysis-bg);
+  color: var(--text-main);
+  border: 1px solid var(--border-subtle);
+  padding: 12px;
+  font-family: inherit;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  resize: vertical;
+  outline: none;
+  margin-bottom: 12px;
+}
+
+.custom-css-area:focus {
+  border-color: var(--text-dim);
+}
+
+.settings-hint {
+  font-size: 0.76rem;
+  color: var(--text-dim);
+  margin-bottom: 12px;
+}
+
+.file-input-hidden {
+  display: none;
+}
+
 /* Футер */
 .site-footer {
   margin-top: 64px;
@@ -386,7 +520,7 @@ html, body {
 
 .github-link:hover {
   color: var(--text-main);
-  filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.65));
+  filter: drop-shadow(0 0 8px var(--glow-color));
   transform: translateY(-1px);
 }
 
