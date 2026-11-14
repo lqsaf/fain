@@ -1,20 +1,26 @@
-import { markNewsIdAsRead } from "./data.js";
+import { markNewsIdAsRead, t } from "./data.js";
 
-const TIME_BUCKETS = [
-  { key: "today", label: "сегодня" },
-  { key: "yesterday", label: "вчера" },
-  { key: "week", label: "на этой неделе" },
-  { key: "month", label: "в этом месяце" }
-];
+const BUCKET_KEYS = ["today", "yesterday", "week", "month"];
 
 export function renderFeed(allItems, readMap) {
   const feedEl = document.getElementById("news-feed");
   if (!feedEl) return;
 
+  const dict = t();
+
+  // Сохраняем ID карточек, у которых уже был открыт блок ИИ-анализа
+  const openAnalysisIds = new Set();
+  feedEl.querySelectorAll(".news-item").forEach(card => {
+    const wrap = card.querySelector(".news-analysis-wrap");
+    if (wrap && wrap.classList.contains("open") && card.dataset.id) {
+      openAnalysisIds.add(card.dataset.id);
+    }
+  });
+
   const unreadItems = allItems.filter(item => !readMap[item.id]);
 
   if (unreadItems.length === 0) {
-    feedEl.innerHTML = `<div class="status-line">все новости прочитаны</div>`;
+    feedEl.innerHTML = `<div class="status-line">${dict.allRead}</div>`;
     return;
   }
 
@@ -32,21 +38,22 @@ export function renderFeed(allItems, readMap) {
 
   feedEl.innerHTML = "";
 
-  for (const bucketInfo of TIME_BUCKETS) {
-    const itemsInBucket = grouped[bucketInfo.key];
+  for (const key of BUCKET_KEYS) {
+    const itemsInBucket = grouped[key];
     if (!itemsInBucket || itemsInBucket.length === 0) continue;
 
     const groupSection = document.createElement("div");
     groupSection.className = "time-group";
-    groupSection.dataset.bucket = bucketInfo.key;
+    groupSection.dataset.bucket = key;
 
     const divider = document.createElement("div");
     divider.className = "time-divider";
-    divider.textContent = bucketInfo.label;
+    divider.textContent = dict.buckets[key] || dict.buckets.week || key;
     groupSection.appendChild(divider);
 
     for (const item of itemsInBucket) {
-      groupSection.appendChild(createNewsCard(item));
+      const isOpen = openAnalysisIds.has(item.id);
+      groupSection.appendChild(createNewsCard(item, dict, isOpen));
     }
 
     feedEl.appendChild(groupSection);
@@ -56,7 +63,8 @@ export function renderFeed(allItems, readMap) {
 export function showEmptyFeedStatus() {
   const feedEl = document.getElementById("news-feed");
   if (feedEl) {
-    feedEl.innerHTML = `<div class="status-line">нет свежих новостей</div>`;
+    const dict = t();
+    feedEl.innerHTML = `<div class="status-line">${dict.emptyFeed}</div>`;
   }
 }
 
@@ -67,7 +75,8 @@ export function updateFooterTimestamp(isoDate) {
   const d = new Date(isoDate);
   if (Number.isNaN(d.getTime())) return;
 
-  el.textContent = d.toLocaleString("ru-RU", {
+  const dict = t();
+  el.textContent = d.toLocaleString(dict.locale || "ru-RU", {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
@@ -92,37 +101,39 @@ function getTimeBucketKey(publishedAtIso) {
   return "month";
 }
 
-function createNewsCard(item) {
+function createNewsCard(item, dict, isAnalysisOpen = false) {
   const article = document.createElement("article");
   article.className = "news-item";
   article.dataset.id = item.id;
 
-  // 1. Тег выше заголовка без рамки (если есть)
+  // 1. Тег выше заголовка (с переводом по словарю)
   if (item.tag && item.tag.trim() !== "") {
+    const rawTag = item.tag.trim().toLowerCase();
+    const localizedTag = dict.tags?.[rawTag] || item.tag.trim();
     const tagEl = document.createElement("span");
     tagEl.className = "news-tag";
-    tagEl.textContent = item.tag.trim();
+    tagEl.textContent = localizedTag;
     article.appendChild(tagEl);
   }
 
   // 2. Заголовок-гиперссылка, раскрывающая ИИ-анализ
   const titleLink = document.createElement("a");
   titleLink.href = "#ai-analysis";
-  titleLink.className = "news-title";
+  titleLink.className = "news-title" + (isAnalysisOpen ? " active" : "");
   titleLink.textContent = item.title;
 
   const analysisWrap = document.createElement("div");
-  analysisWrap.className = "news-analysis-wrap";
+  analysisWrap.className = "news-analysis-wrap" + (isAnalysisOpen ? " open" : "");
 
   const analysisBox = document.createElement("div");
   analysisBox.className = "news-analysis";
 
   const analysisLabel = document.createElement("span");
   analysisLabel.className = "analysis-label";
-  analysisLabel.textContent = "// ии-анализ";
+  analysisLabel.textContent = dict.aiAnalysis;
 
   const analysisText = document.createElement("p");
-  analysisText.textContent = item.analysis || "Анализ недоступен.";
+  analysisText.textContent = item.analysis || dict.analysisUnavailable;
 
   analysisBox.appendChild(analysisLabel);
   analysisBox.appendChild(analysisText);
@@ -137,7 +148,7 @@ function createNewsCard(item) {
   // 3. Описание (при клике — новость считается прочитанной и удаляется)
   const descEl = document.createElement("div");
   descEl.className = "news-description";
-  descEl.title = "Нажмите, чтобы отметить прочитанным и скрыть";
+  descEl.title = dict.clickToMarkRead;
   descEl.textContent = item.summary;
 
   descEl.addEventListener("click", () => {
@@ -153,7 +164,7 @@ function createNewsCard(item) {
   sourceLink.href = item.url;
   sourceLink.target = "_blank";
   sourceLink.rel = "noopener noreferrer";
-  sourceLink.textContent = "источник";
+  sourceLink.textContent = dict.source;
 
   metaRow.appendChild(sourceLink);
 
@@ -181,7 +192,8 @@ function markAsReadAndRemove(id, articleEl) {
 
     const feedEl = document.getElementById("news-feed");
     if (feedEl && feedEl.querySelectorAll(".news-item").length === 0) {
-      feedEl.innerHTML = `<div class="status-line">все новости прочитаны</div>`;
+      const dict = t();
+      feedEl.innerHTML = `<div class="status-line">${dict.allRead}</div>`;
     }
   }, 340);
 }

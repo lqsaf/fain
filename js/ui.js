@@ -1,3 +1,34 @@
+import { getUserPreferences } from "./data.js";
+
+const CUSTOM_STYLE_ID = "fain-custom-css";
+
+// Применяем тему, состояние ASCII-волн и пользовательский CSS из localStorage
+export function applyUserPreferences() {
+  const { lang, theme, ascii, customCss } = getUserPreferences();
+
+  document.documentElement.lang = lang;
+  document.documentElement.setAttribute("data-theme", theme);
+
+  const leftEl = document.getElementById("ascii-left");
+  const rightEl = document.getElementById("ascii-right");
+  const isHidden = ascii === "off";
+
+  if (leftEl) leftEl.classList.toggle("ascii-hidden", isHidden);
+  if (rightEl) rightEl.classList.toggle("ascii-hidden", isHidden);
+
+  let styleEl = document.getElementById(CUSTOM_STYLE_ID);
+  if (customCss && customCss.trim() !== "") {
+    if (!styleEl) {
+      styleEl = document.createElement("style");
+      styleEl.id = CUSTOM_STYLE_ID;
+      document.head.appendChild(styleEl);
+    }
+    styleEl.textContent = customCss;
+  } else if (styleEl) {
+    styleEl.remove();
+  }
+}
+
 // Скрытие верхней панели при скролле вниз и показ при скролле вверх
 export function initTopPanel() {
   const panel = document.getElementById("top-panel");
@@ -11,7 +42,6 @@ export function initTopPanel() {
     () => {
       const currentScrollY = window.scrollY;
 
-      // В самом верху страницы панель всегда видна
       if (currentScrollY <= 16) {
         panel.classList.remove("top-panel--hidden");
         lastScrollY = currentScrollY;
@@ -34,29 +64,22 @@ export function initTopPanel() {
   );
 }
 
-// Отрисовка боковых ASCII синусоидных графиков для ПК
+// Отрисовка боковых ASCII синусоидных графиков с единой фазой по системному времени
 export function initAsciiSineWaves() {
   const leftEl = document.getElementById("ascii-left");
   const rightEl = document.getElementById("ascii-right");
   if (!leftEl || !rightEl) return;
 
   const width = 21;
-  let phase = 0;
   let lastFrame = 0;
 
-  function renderFrame(timestamp) {
-    if (window.innerWidth <= 1120) {
-      requestAnimationFrame(renderFrame);
+  function drawWaves() {
+    if (window.innerWidth <= 1120 || leftEl.classList.contains("ascii-hidden")) {
       return;
     }
 
-    // Ограничиваем частоту кадров ~18 FPS для спокойного терминального движения
-    if (timestamp - lastFrame < 55) {
-      requestAnimationFrame(renderFrame);
-      return;
-    }
-    lastFrame = timestamp;
-
+    // Фаза привязана к реальному времени, чтобы волны не сбрасывались при смене страниц
+    const phase = (Date.now() % 3600000) * 0.0016;
     const rows = Math.max(30, Math.floor(window.innerHeight / 13));
     let leftOut = "";
     let rightOut = "";
@@ -90,10 +113,17 @@ export function initAsciiSineWaves() {
 
     leftEl.textContent = leftOut;
     rightEl.textContent = rightOut;
-    phase += 0.09;
+  }
 
+  function renderFrame(timestamp) {
+    if (timestamp - lastFrame >= 55) {
+      lastFrame = timestamp;
+      drawWaves();
+    }
     requestAnimationFrame(renderFrame);
   }
 
+  // Мгновенный первый кадр без ожидания следующего тика анимации
+  drawWaves();
   requestAnimationFrame(renderFrame);
 }
