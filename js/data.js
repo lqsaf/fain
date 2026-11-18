@@ -50,6 +50,9 @@ export const I18N = {
     settings: {
       langLabel: "// язык",
       themeLabel: "// тема оформления",
+      interfaceSection: "интерфейс",
+      languageSection: "язык",
+      otherSection: "прочее",
       themes: {
         dark: "монохром",
         light: "газетная",
@@ -105,6 +108,9 @@ export const I18N = {
     settings: {
       langLabel: "// language",
       themeLabel: "// color theme",
+      interfaceSection: "interface",
+      languageSection: "language",
+      otherSection: "other",
       themes: {
         dark: "monochrome",
         light: "e-ink",
@@ -160,6 +166,9 @@ export const I18N = {
     settings: {
       langLabel: "// 语言 / language",
       themeLabel: "// 界面主题",
+      interfaceSection: "界面",
+      languageSection: "语言",
+      otherSection: "其他",
       themes: {
         dark: "黑白终端",
         light: "电子墨水",

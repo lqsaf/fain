@@ -65,7 +65,7 @@
     - `node scripts/verify.mjs` проходит.
 
 - done: 2026-11-18T19:12:21.964Z
-## [ ] T04 · Настройки: разделы и выпадающие списки
+## [x] T04 · Настройки: разделы и выпадающие списки
 - area: frontend
 - priority: high
 - files: settings.html, js/settings.js, js/data.js, css/styles.css
@@ -80,6 +80,7 @@
     - Сохранение применяется сразу и переживает reload.
     - `node scripts/verify.mjs` проходит.
 
+- done: 2026-11-18T20:40:43.306Z
 ## [ ] T05 · Масштаб интерфейса
 - area: frontend
 - priority: normal

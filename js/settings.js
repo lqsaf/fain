@@ -24,85 +24,76 @@ function renderSettingsPage() {
 
   container.innerHTML = "";
 
-  // 1. Блок выбора языка
-  const langBlock = createBlock(dict.settings.langLabel);
-  const langOptions = document.createElement("div");
-  langOptions.className = "settings-options";
-
-  const languages = [
-    { code: "ru", label: "ru // русский" },
-    { code: "en", label: "en // english" },
-    { code: "zh", label: "zh // 中文" }
-  ];
-
-  for (const item of languages) {
-    const btn = createTermButton(item.label, prefs.lang === item.code, () => {
-      setUserLang(item.code);
-      applyUserPreferences();
-      renderSettingsPage();
-    });
-    langOptions.appendChild(btn);
-  }
-  langBlock.appendChild(langOptions);
-  container.appendChild(langBlock);
-
-  // 2. Блок выбора темы оформления
-  const themeBlock = createBlock(dict.settings.themeLabel);
-  const themeOptions = document.createElement("div");
-  themeOptions.className = "settings-options";
-
-  const themeKeys = ["dark", "light", "amber", "phosphor"];
-  for (const key of themeKeys) {
-    const label = dict.settings.themes[key] || key;
-    const btn = createTermButton(label, prefs.theme === key, () => {
+  // 1. Интерфейс (Interface)
+  const interfaceSection = createSection(dict.settings.interfaceSection);
+  
+  // Theme
+  const themeSelect = createSelect(
+    dict.settings.themeLabel,
+    ["dark", "light", "amber", "phosphor"],
+    key => dict.settings.themes[key],
+    prefs.theme,
+    val => {
       try {
-        localStorage.setItem(STORAGE_KEYS.THEME, key);
+        localStorage.setItem(STORAGE_KEYS.THEME, val);
       } catch {}
       applyUserPreferences();
       renderSettingsPage();
-    });
-    themeOptions.appendChild(btn);
-  }
-  themeBlock.appendChild(themeOptions);
-  container.appendChild(themeBlock);
+    }
+  );
+  interfaceSection.appendChild(themeSelect);
 
-  // 3. Блок управления боковыми ASCII-волнами
-  const asciiBlock = createBlock(dict.settings.asciiLabel);
-  const asciiOptions = document.createElement("div");
-  asciiOptions.className = "settings-options";
-
-  const asciiStates = [
-    { value: "on", label: dict.settings.asciiOn },
-    { value: "off", label: dict.settings.asciiOff }
-  ];
-
-  for (const state of asciiStates) {
-    const btn = createTermButton(state.label, prefs.ascii === state.value, () => {
+  // ASCII
+  const asciiSelect = createSelect(
+    dict.settings.asciiLabel,
+    ["on", "off"],
+    val => (val === "on" ? dict.settings.asciiOn : dict.settings.asciiOff),
+    prefs.ascii,
+    val => {
       try {
-        localStorage.setItem(STORAGE_KEYS.ASCII, state.value);
+        localStorage.setItem(STORAGE_KEYS.ASCII, val);
       } catch {}
       applyUserPreferences();
       renderSettingsPage();
-    });
-    asciiOptions.appendChild(btn);
-  }
-  asciiBlock.appendChild(asciiOptions);
-  container.appendChild(asciiBlock);
+    }
+  );
+  interfaceSection.appendChild(asciiSelect);
+  
+  container.appendChild(interfaceSection);
 
-  // 4. Блок пользовательского CSS
-  const cssBlock = createBlock(dict.settings.customCssLabel);
+  // 2. Язык (Language)
+  const langSection = createSection(dict.settings.languageSection);
+  
+  const langSelect = createSelect(
+    dict.settings.langLabel,
+    ["ru", "en", "zh"],
+    val => ({ ru: "ru // русский", en: "en // english", zh: "zh // 中文" }[val]),
+    prefs.lang,
+    val => {
+      setUserLang(val);
+      applyUserPreferences();
+      renderSettingsPage();
+    }
+  );
+  langSection.appendChild(langSelect);
+  
+  container.appendChild(langSection);
 
-  const hint = document.createElement("p");
-  hint.className = "settings-hint";
-  hint.textContent = dict.settings.customCssHint;
-  cssBlock.appendChild(hint);
+  // 3. Прочее (Other)
+  const otherSection = createSection(dict.settings.otherSection);
+  
+  // Custom CSS (Keep textarea as requested)
+  const cssLabel = document.createElement("label");
+  cssLabel.className = "settings-label";
+  cssLabel.textContent = dict.settings.customCssLabel;
+  otherSection.appendChild(cssLabel);
 
   const textarea = document.createElement("textarea");
   textarea.className = "custom-css-area";
   textarea.placeholder = dict.settings.customCssPlaceholder;
   textarea.value = prefs.customCss;
   textarea.spellcheck = false;
-  cssBlock.appendChild(textarea);
+  otherSection.appendChild(textarea);
 
   const cssActions = document.createElement("div");
   cssActions.className = "settings-options";
@@ -115,15 +106,22 @@ function renderSettingsPage() {
     flashButtonText(applyBtn, dict.settings.savedToast, dict.settings.applyCss);
   });
 
-  const fileInput = document.createElement("input");
-  fileInput.type = "file";
-  fileInput.accept = ".css,text/css";
-  fileInput.className = "file-input-hidden";
-
   const uploadBtn = createTermButton(dict.settings.uploadCss, false, () => {
     fileInput.click();
   });
 
+  const resetBtn = createTermButton(dict.settings.resetCss, false, () => {
+    textarea.value = "";
+    try {
+      localStorage.removeItem(STORAGE_KEYS.CUSTOM_CSS);
+    } catch {}
+    applyUserPreferences();
+  });
+
+  const fileInput = document.createElement("input");
+  fileInput.type = "file";
+  fileInput.accept = ".css,text/css";
+  fileInput.className = "file-input-hidden";
   fileInput.addEventListener("change", async e => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -140,33 +138,59 @@ function renderSettingsPage() {
     }
   });
 
-  const resetBtn = createTermButton(dict.settings.resetCss, false, () => {
-    textarea.value = "";
-    try {
-      localStorage.removeItem(STORAGE_KEYS.CUSTOM_CSS);
-    } catch {}
-    applyUserPreferences();
-  });
-
   cssActions.appendChild(applyBtn);
   cssActions.appendChild(uploadBtn);
   cssActions.appendChild(resetBtn);
   cssActions.appendChild(fileInput);
 
-  cssBlock.appendChild(cssActions);
-  container.appendChild(cssBlock);
+  otherSection.appendChild(cssActions);
+  container.appendChild(otherSection);
 }
 
-function createBlock(labelText) {
-  const block = document.createElement("div");
-  block.className = "settings-block";
+function createSection(title) {
+  const section = document.createElement("div");
+  section.className = "settings-block";
+  
+  const header = document.createElement("h2");
+  header.className = "settings-label";
+  header.textContent = title;
+  header.style.fontSize = "0.9rem";
+  header.style.marginBottom = "20px";
+  header.style.textTransform = "uppercase";
+  
+  section.appendChild(header);
+  return section;
+}
 
-  const label = document.createElement("span");
+function createSelect(labelText, options, labelFn, currentVal, onChange) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "settings-block";
+  wrapper.style.padding = "10px 0";
+  wrapper.style.borderBottom = "none";
+
+  const label = document.createElement("label");
   label.className = "settings-label";
   label.textContent = labelText;
+  label.style.marginBottom = "6px";
+  wrapper.appendChild(label);
 
-  block.appendChild(label);
-  return block;
+  const select = document.createElement("select");
+  select.className = "term-select";
+  
+  options.forEach(opt => {
+    const option = document.createElement("option");
+    option.value = opt;
+    option.textContent = labelFn(opt);
+    if (opt === currentVal) option.selected = true;
+    select.appendChild(option);
+  });
+
+  select.addEventListener("change", e => {
+    onChange(e.target.value);
+  });
+
+  wrapper.appendChild(select);
+  return wrapper;
 }
 
 function createTermButton(text, isActive, onClick) {

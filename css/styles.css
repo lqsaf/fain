@@ -468,9 +468,9 @@ html, body {
   border-color: var(--text-main);
 }
 
-.custom-css-area {
+.custom-css-area,
+select {
   width: 100%;
-  min-height: 120px;
   background-color: var(--analysis-bg);
   color: var(--text-main);
   border: 1px solid var(--border-subtle);
@@ -478,12 +478,19 @@ html, body {
   font-family: inherit;
   font-size: 0.82rem;
   line-height: 1.5;
-  resize: vertical;
   outline: none;
   margin-bottom: 12px;
 }
 
-.custom-css-area:focus {
+select {
+  padding: 7px 12px;
+  cursor: pointer;
+  appearance: none;
+  background-image: none; /* remove default arrow if possible */
+  margin-bottom: 0;
+}
+
+select:focus {
   border-color: var(--text-dim);
 }
 
