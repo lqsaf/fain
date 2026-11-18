@@ -551,7 +551,8 @@ function extractLink(xmlBlock) {
 
 function cleanText(str) {
   if (!str) return "";
-  return decodeEntities(str.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/gi, "$1").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim());
+  const decoded = decodeEntities(str.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/gi, "$1"));
+  return decoded.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 }
 
 function decodeEntities(str) {

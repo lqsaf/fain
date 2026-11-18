@@ -253,7 +253,7 @@
     - `node scripts/verify.mjs` проходит.
 
 - done: 2026-11-18T23:38:53.923Z
-## [ ] T17 · cleanText: сначала decodeEntities, потом теги
+## [x] T17 · cleanText: сначала decodeEntities, потом теги
 - area: backend
 - priority: high
 - files: worker.js
@@ -267,6 +267,7 @@
     - Пробелы/переносы нормализуются, пустой результат отбрасывается.
     - `node scripts/verify.mjs` проходит.
 
+- done: 2026-11-18T23:39:15.303Z
 ## [ ] T18 · Статический feed.json и GitHub Actions
 - area: delivery
 - priority: high
