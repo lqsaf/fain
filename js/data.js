@@ -23,6 +23,12 @@ export const I18N = {
     allRead: "все новости прочитаны",
     emptyFeed: "нет свежих новостей",
     updated: "обновлено:",
+    time: {
+      justNow: "только что",
+      minutes: ["минута назад", "минуты назад", "минут назад"],
+      hours: ["час назад", "часа назад", "часов назад"],
+      days: ["день назад", "дня назад", "дней назад"]
+    },
     aiAnalysis: "// ии-анализ",
     analysisUnavailable: "Анализ недоступен.",
     clickToMarkRead: "Нажмите, чтобы отметить прочитанным и скрыть",
@@ -72,6 +78,12 @@ export const I18N = {
     allRead: "all news read",
     emptyFeed: "no recent news",
     updated: "updated:",
+    time: {
+      justNow: "just now",
+      minutes: "minutes ago",
+      hours: "hours ago",
+      days: "days ago"
+    },
     aiAnalysis: "// ai-analysis",
     analysisUnavailable: "Analysis unavailable.",
     clickToMarkRead: "Click to mark as read and dismiss",
@@ -121,6 +133,12 @@ export const I18N = {
     allRead: "所有资讯已读",
     emptyFeed: "暂无最新资讯",
     updated: "更新于:",
+    time: {
+      justNow: "刚刚",
+      minutes: "分钟前",
+      hours: "小时前",
+      days: "天前"
+    },
     aiAnalysis: "// ai 深度分析",
     analysisUnavailable: "暂无分析。",
     clickToMarkRead: "点击标记为已读并隐藏",

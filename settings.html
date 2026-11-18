@@ -4,6 +4,21 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>настройки — fain</title>
+  <script>
+    (function() {
+      try {
+        var theme = localStorage.getItem('fain_theme_v1') || 'dark';
+        document.documentElement.setAttribute('data-theme', theme);
+        var css = localStorage.getItem('fain_custom_css_v1');
+        if (css) {
+          var style = document.createElement('style');
+          style.id = 'fain-custom-css';
+          style.textContent = css;
+          document.head.appendChild(style);
+        }
+      } catch (e) {}
+    })();
+  </script>
   <link rel="stylesheet" href="./css/styles.css" />
 </head>
 <body>

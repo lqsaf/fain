@@ -76,7 +76,44 @@ export function updateFooterTimestamp(isoDate) {
   if (Number.isNaN(d.getTime())) return;
 
   const dict = t();
-  el.textContent = d.toLocaleString(dict.locale || "ru-RU", {
+  el.textContent = getRelativeTime(isoDate, dict);
+}
+
+function plural(n, forms) {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod100 >= 11 && mod100 <= 14) return forms[2];
+  if (mod10 === 1) return forms[0];
+  if (mod10 >= 2 && mod10 <= 4) return forms[1];
+  return forms[2];
+}
+
+function getRelativeTime(isoDate, dict) {
+  const d = new Date(isoDate);
+  const now = new Date();
+  const diffMs = now - d;
+  const diffMin = Math.floor(diffMs / 60000);
+  const diffHour = Math.floor(diffMin / 60);
+  const diffDay = Math.floor(diffHour / 24);
+
+  if (diffMin < 1) return dict.time.justNow;
+
+  if (diffMin < 60) {
+    if (dict.locale === "ru-RU") return `${diffMin} ${plural(diffMin, dict.time.minutes)}`;
+    return `${diffMin} ${dict.time.minutes}`;
+  }
+
+  if (diffHour < 24) {
+    if (dict.locale === "ru-RU") return `${diffHour} ${plural(diffHour, dict.time.hours)}`;
+    return `${diffHour} ${dict.time.hours}`;
+  }
+
+  if (diffDay <= 30) {
+    if (dict.locale === "ru-RU") return `${diffDay} ${plural(diffDay, dict.time.days)}`;
+    return `${diffDay} ${dict.time.days}`;
+  }
+
+  return d.toLocaleString(dict.locale || "ru-RU", {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
