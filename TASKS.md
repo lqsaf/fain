@@ -49,7 +49,7 @@
     - Текст локализован в ru/en/zh через I18N.
     - Адрес берётся из поля `- url:` этой задачи, не хардкодится в нескольких местах.
 
-## [ ] T03 · Тема без сброса, предсказуемый интерфейс, прозрачная топ-панель
+## [x] T03 · Тема без сброса, предсказуемый интерфейс, прозрачная топ-панель
 - area: frontend
 - priority: high
 - files: index.html, settings.html, css/styles.css, js/ui.js, js/data.js
@@ -64,6 +64,7 @@
     - Нет layout shift из-за шрифтов/панели; поведение одинаково на index.html и settings.html.
     - `node scripts/verify.mjs` проходит.
 
+- done: 2026-11-18T19:12:21.964Z
 ## [ ] T04 · Настройки: разделы и выпадающие списки
 - area: frontend
 - priority: high
