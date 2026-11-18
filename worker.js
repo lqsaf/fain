@@ -460,6 +460,10 @@ function parseFeedXml(xml, sourceName, now) {
 
 function isValidItem(item) {
   if (!item || !item.id || !item.publishedAt || !item.translations) return false;
+  for (const lang of ["ru", "en", "zh"]) {
+    const t = item.translations[lang];
+    if (!t || !t.title || !t.summary) return false;
+  }
   return true;
 }
 
