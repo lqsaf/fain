@@ -89,8 +89,8 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
-          FA_MODEL: ${{ vars.FA_MODEL || 'google/gemini-3.1-flash-lite#high' }}
-          FA_REVIEW_MODEL: ${{ vars.FA_REVIEW_MODEL || 'opencode/deepseek-v4-flash-free#high' }}
+          FA_MODEL: ${{ vars.FA_MODEL || 'opencode/deepseek-v4.1-flash-free#high' }}
+          FA_REVIEW_MODEL: ${{ vars.FA_REVIEW_MODEL || 'opencode/deepseek-v4.1-flash-free#high' }}
           FA_ENABLED: ${{ vars.FA_ENABLED }}
           FA_MAX_TASKS: ${{ vars.FA_MAX_TASKS }}
           FA_TASK_TIMEOUT_MIN: ${{ vars.FA_TASK_TIMEOUT_MIN }}
@@ -99,7 +99,10 @@ jobs:
           FA_TOKEN_BUDGET: ${{ vars.FA_TOKEN_BUDGET }}
           FA_MAX_INFRA_FAILURES: ${{ vars.FA_MAX_INFRA_FAILURES }}
         run: |
+          run: |
           set -euo pipefail
+          git config user.name "fain-fa[bot]"
+          git config user.email "fain-fa[bot]@users.noreply.github.com"
           args=""
           if [ "${{ github.event.inputs.mode }}" = "once" ]; then
             args="--once"
