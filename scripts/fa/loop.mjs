@@ -591,16 +591,20 @@ async function runTask(task) {
     if (outcome.kind === "infra") {
       git.revertWorktree();
       state.infraFailures += 1;
-      if (state.infraFailures >= LIMITS.maxInfraFailures) {
+      const isQuota = /quota|rate|limit|429/i.test(outcome.reason || "");
+      if (state.infraFailures >= LIMITS.maxInfraFailures || attempt >= attemptsLimit) {
         state.failed = true;
-        state.stopReason = "infrastructure failures";
-        createIssue(
-          "FA infrastructure failure",
-          `Подряд инфра-провалов: ${state.infraFailures}.\n\nПоследняя причина: ${outcome.reason}\n\nЗадача: ${task.id}`
-        );
+        state.stopReason = isQuota ? "provider quota" : "infrastructure failures";
+        if (state.infraFailures >= LIMITS.maxInfraFailures) {
+          createIssue(
+            "FA infrastructure failure",
+            `Подряд инфра-провалов: ${state.infraFailures}.\n\nПоследняя причина: ${outcome.reason}\n\nЗадача: ${task.id}`
+          );
+        }
         return { result: "infra", attempts: attempt };
       }
-      log("task.retry", { task: task.id, message: `infra, attempt ${attempt}` });
+      log("task.retry", { task: task.id, message: `infra, attempt ${attempt}${isQuota ? " (waiting 65s for quota window)" : ""}` });
+      if (isQuota) await new Promise((resolve) => setTimeout(resolve, 65_000));
       continue;
     }
 
