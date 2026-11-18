@@ -237,7 +237,7 @@
     - `node scripts/verify.mjs` проходит.
 
 - done: 2026-11-18T23:38:33.483Z
-## [ ] T16 · Таймаут Gemini через AbortController
+## [x] T16 · Таймаут Gemini через AbortController
 - area: backend
 - priority: high
 - files: worker.js
@@ -252,6 +252,7 @@
     - Ошибка таймаута логируется без ключей и тел запросов.
     - `node scripts/verify.mjs` проходит.
 
+- done: 2026-11-18T23:38:53.923Z
 ## [ ] T17 · cleanText: сначала decodeEntities, потом теги
 - area: backend
 - priority: high

@@ -386,6 +386,8 @@ async function callGeminiWithFallback(keyIndex, promptText, responseSchema, env)
     for (const modelName of GEMINI_MODELS) {
       if (deadModels.has(modelName)) continue;
       const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
       try {
         const response = await fetch(endpoint, {
           method: "POST",
@@ -393,7 +395,8 @@ async function callGeminiWithFallback(keyIndex, promptText, responseSchema, env)
           body: JSON.stringify({
             contents: [{ parts: [{ text: promptText }] }],
             generationConfig: { responseMimeType: "application/json", responseSchema }
-          })
+          }),
+          signal: controller.signal
         });
         if (response.status === 404) { deadModels.add(modelName); continue; }
         if (!response.ok) continue;
@@ -402,7 +405,15 @@ async function callGeminiWithFallback(keyIndex, promptText, responseSchema, env)
         if (!rawText) continue;
         const cleanedJson = rawText.replace(/^```json\s*/i, "").replace(/```\s*$/i, "").trim();
         return JSON.parse(cleanedJson);
-      } catch (err) { console.warn(err.message); }
+      } catch (err) {
+        if (err.name === "AbortError") {
+          console.warn("Gemini API timeout");
+        } else {
+          console.warn(err.message);
+        }
+      } finally {
+        clearTimeout(timeout);
+      }
     }
   }
   return null;
