@@ -144,7 +144,7 @@ export default {
     // Фильтруем данные под нужный язык
     const responseStore = {
       lastUpdated: store.lastUpdated,
-      items: store.items.map(item => ({
+      items: store.items.slice(0, 50).map(item => ({
         id: item.id,
         url: item.url,
         source: item.source,
@@ -360,7 +360,7 @@ ${JSON.stringify(translatedCandidates.map((c, idx) => ({
     });
   }
 
-  store.items = cleanStoreItems([...newItems, ...store.items], now).slice(0, 50);
+  store.items = cleanStoreItems([...newItems, ...store.items], now).slice(0, 200);
   store.lastUpdated = new Date(now).toISOString();
   await saveStore(env, store);
   return store;
