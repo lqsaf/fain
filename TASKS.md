@@ -65,7 +65,7 @@
     - `node scripts/verify.mjs` проходит.
 
 - done: 2026-11-18T19:12:21.964Z
-## [ ] T04 · Настройки: разделы и выпадающие списки
+## [x] T04 · Настройки: разделы и выпадающие списки
 - area: frontend
 - priority: high
 - files: settings.html, js/settings.js, js/data.js, css/styles.css
@@ -80,6 +80,7 @@
     - Сохранение применяется сразу и переживает reload.
     - `node scripts/verify.mjs` проходит.
 
+- done: 2026-11-18T20:40:43.306Z
 ## [ ] T05 · Масштаб интерфейса
 - area: frontend
 - priority: normal
@@ -110,7 +111,7 @@
     - Версия локализована («версия» / «version» / «版本»).
     - `node scripts/verify.mjs` проходит.
 
-## [ ] T07 · Кэш ленты раздельно по языкам
+## [x] T07 · Кэш ленты раздельно по языкам
 - area: frontend
 - priority: high
 - files: js/data.js, js/main.js, js/feed.js
@@ -125,7 +126,8 @@
     - После смены языка лента сразу показывает карточки целевого языка.
     - `node scripts/verify.mjs` проходит.
 
-## [ ] T08 · Мультиязычный pipeline в worker.js
+- done: 2026-11-18T20:43:23.744Z
+## [x] T08 · Мультиязычный pipeline в worker.js
 - area: backend
 - priority: high
 - files: worker.js, wrangler.toml
@@ -140,7 +142,8 @@
     - Неизвестный/отсутствующий `lang` даёт безопасный fallback (ru), без 500.
     - `node scripts/verify.mjs` проходит.
 
-## [ ] T09 · Убрать жёсткую привязку к кириллице
+- done: 2026-11-18T22:36:03.862Z
+## [x] T09 · Убрать жёсткую привязку к кириллице
 - area: backend
 - priority: high
 - files: worker.js
@@ -155,6 +158,7 @@
     - Ошибочные/пустые ответы модели по-прежнему отбрасываются.
     - `node scripts/verify.mjs` проходит.
 
+- done: 2026-11-18T22:38:50.118Z
 ## [ ] T10 · Не более 5 новостей в день
 - area: backend
 - priority: high

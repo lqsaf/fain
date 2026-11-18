@@ -1,14 +1,46 @@
 const WORKER_URL = "https://fain-worker.weraktesau.workers.dev/";
 
 export const STORAGE_KEYS = {
-  ITEMS: "fain_cached_items_v2",
+  ITEMS_BASE: "fain_cached_items_v2",
   READ_IDS: "fain_read_ids_v1",
-  LAST_UPDATED: "fain_last_updated_v1",
+  LAST_UPDATED_BASE: "fain_last_updated_v1",
   LANG: "fain_lang_v1",
   THEME: "fain_theme_v1",
   ASCII: "fain_ascii_v1",
   CUSTOM_CSS: "fain_custom_css_v1"
 };
+
+export function getCacheKey(base, lang) {
+  return `${base}_${lang}`;
+}
+
+export function migrateCacheIfNeeded() {
+  const lang = getUserLang();
+  
+  // Миграция Items
+  const oldItemsKey = STORAGE_KEYS.ITEMS_BASE;
+  const newItemsKey = getCacheKey(STORAGE_KEYS.ITEMS_BASE, lang);
+  
+  try {
+    const oldItems = localStorage.getItem(oldItemsKey);
+    if (oldItems && !localStorage.getItem(newItemsKey)) {
+      localStorage.setItem(newItemsKey, oldItems);
+      localStorage.removeItem(oldItemsKey);
+    }
+  } catch {}
+
+  // Миграция Last Updated
+  const oldLastUpdatedKey = STORAGE_KEYS.LAST_UPDATED_BASE;
+  const newLastUpdatedKey = getCacheKey(STORAGE_KEYS.LAST_UPDATED_BASE, lang);
+
+  try {
+    const oldLastUpdated = localStorage.getItem(oldLastUpdatedKey);
+    if (oldLastUpdated && !localStorage.getItem(newLastUpdatedKey)) {
+      localStorage.setItem(newLastUpdatedKey, oldLastUpdated);
+      localStorage.removeItem(oldLastUpdatedKey);
+    }
+  } catch {}
+}
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -50,6 +82,9 @@ export const I18N = {
     settings: {
       langLabel: "// язык",
       themeLabel: "// тема оформления",
+      interfaceSection: "интерфейс",
+      languageSection: "язык",
+      otherSection: "прочее",
       themes: {
         dark: "монохром",
         light: "газетная",
@@ -105,6 +140,9 @@ export const I18N = {
     settings: {
       langLabel: "// language",
       themeLabel: "// color theme",
+      interfaceSection: "interface",
+      languageSection: "language",
+      otherSection: "other",
       themes: {
         dark: "monochrome",
         light: "e-ink",
@@ -160,6 +198,9 @@ export const I18N = {
     settings: {
       langLabel: "// 语言 / language",
       themeLabel: "// 界面主题",
+      interfaceSection: "界面",
+      languageSection: "语言",
+      otherSection: "其他",
       themes: {
         dark: "黑白终端",
         light: "电子墨水",
@@ -243,9 +284,12 @@ export function saveJson(key, value) {
 }
 
 export function getLocalCacheState(now = Date.now()) {
-  let cachedItems = loadJson(STORAGE_KEYS.ITEMS, []);
+  migrateCacheIfNeeded();
+  const lang = getUserLang();
+  
+  let cachedItems = loadJson(getCacheKey(STORAGE_KEYS.ITEMS_BASE, lang), []);
   let readMap = loadJson(STORAGE_KEYS.READ_IDS, {});
-  const lastUpdated = localStorage.getItem(STORAGE_KEYS.LAST_UPDATED) || null;
+  const lastUpdated = localStorage.getItem(getCacheKey(STORAGE_KEYS.LAST_UPDATED_BASE, lang)) || null;
 
   cachedItems = filterRecentItems(cachedItems, now);
   readMap = cleanOldReadIds(readMap, now);
@@ -270,10 +314,10 @@ export async function fetchAndSyncNews(cachedItems, readMap, now = Date.now()) {
   const updatedItems = mergeNewsItems(cachedItems, remoteData.items, now);
   const lastUpdated = remoteData.lastUpdated || new Date().toISOString();
 
-  saveJson(STORAGE_KEYS.ITEMS, updatedItems);
+  saveJson(getCacheKey(STORAGE_KEYS.ITEMS_BASE, lang), updatedItems);
   saveJson(STORAGE_KEYS.READ_IDS, readMap);
   try {
-    localStorage.setItem(STORAGE_KEYS.LAST_UPDATED, lastUpdated);
+    localStorage.setItem(getCacheKey(STORAGE_KEYS.LAST_UPDATED_BASE, lang), lastUpdated);
   } catch {}
 
   return { updatedItems, lastUpdated };
