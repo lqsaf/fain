@@ -455,10 +455,16 @@ async function attemptTask(task, attempt) {
   }
 
   if (result.code !== 0) {
+    const errTail = (readFileSafe(stderrFile) || "").split("\n").slice(-5).join(" | ").slice(0, 500);
+    const outTail = (readFileSafe(stdoutFile) || "").slice(-1500);
+    if (/free usage limit|rate limit|too many requests|quota|\b429\b/i.test(`${errTail}\n${outTail}`)) {
+      log("task.infra", { task: task.id, message: `provider limit: ${errTail || "see jsonl"}` });
+      return { kind: "infra", reason: `provider limit: ${errTail || "rate/quota limit"}`, metrics, durationMs: Date.now() - started };
+    }
     log("task.fail", { task: task.id, message: `opencode exit ${result.code}` });
     return {
       kind: "attempt",
-      reason: `opencode exit ${result.code}: ${(readFileSafe(stderrFile) || "").split("\n").slice(-5).join(" | ").slice(0, 500)}`,
+      reason: `opencode exit ${result.code}: ${errTail}`,
       metrics,
       durationMs: Date.now() - started
     };
