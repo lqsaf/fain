@@ -1,0 +1,147 @@
+name: FA
+
+"on":
+  schedule:
+    # Watchdog: поднимает цикл, если он завершился, а задачи остались.
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "run — непрерывный цикл, once — одна задача, stop — отменить активные запуски"
+        type: choice
+        options:
+          - run
+          - once
+          - stop
+        default: run
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  # Stop идёт отдельной группой и не ждёт активный цикл; run/once — в общей.
+  group: ${{ github.event.inputs.mode == 'stop' && 'fa-stop' || 'fa-loop' }}
+  cancel-in-progress: false
+
+jobs:
+  fa:
+    if: ${{ github.event.inputs.mode != 'stop' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.FA_PAT || secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Gate
+        id: gate
+        env:
+          FA_ENABLED: ${{ vars.FA_ENABLED }}
+          MODE: ${{ github.event.inputs.mode }}
+        run: |
+          set -euo pipefail
+          mode="${MODE:-run}"
+          if [ "$mode" = "stop" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "FA stopped by workflow_dispatch"
+            exit 0
+          fi
+          if [ "${FA_ENABLED:-true}" = "false" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "FA_ENABLED=false"
+            exit 0
+          fi
+          if [ -f FA_STOP ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "FA_STOP file is present"
+            exit 0
+          fi
+          if ! node scripts/fa/queue.mjs has-work > /tmp/fa-next.txt; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "no runnable tasks"
+            exit 0
+          fi
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+          echo "next task: $(cat /tmp/fa-next.txt)"
+
+      - name: Install OpenCode
+        if: steps.gate.outputs.enabled == 'true'
+        run: npm install -g "opencode-ai@${{ vars.OPENCODE_VERSION || 'latest' }}"
+
+      - name: Run FA
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          CI: "true"
+          GH_TOKEN: ${{ secrets.FA_PAT || secrets.GITHUB_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GOOGLE_GENERATIVE_AI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          FA_MODEL: ${{ vars.FA_MODEL || 'opencode/deepseek-v4.1-flash-free#high' }}
+          FA_ENABLED: ${{ vars.FA_ENABLED }}
+          FA_MAX_TASKS: ${{ vars.FA_MAX_TASKS }}
+          FA_TASK_TIMEOUT_MIN: ${{ vars.FA_TASK_TIMEOUT_MIN }}
+          FA_RUN_BUDGET_MIN: ${{ vars.FA_RUN_BUDGET_MIN }}
+          FA_MAX_ATTEMPTS: ${{ vars.FA_MAX_ATTEMPTS }}
+          FA_TOKEN_BUDGET: ${{ vars.FA_TOKEN_BUDGET }}
+          FA_MAX_INFRA_FAILURES: ${{ vars.FA_MAX_INFRA_FAILURES }}
+        run: |
+          set -euo pipefail
+          args=""
+          if [ "${{ github.event.inputs.mode }}" = "once" ]; then
+            args="--once"
+          fi
+          node scripts/fa/loop.mjs $args
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fa-logs-${{ github.run_id }}
+          path: |
+            fa/logs
+            fa/eval
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Summary
+        if: always()
+        run: |
+          if [ -f fa/logs/latest.json ]; then
+            node scripts/fa/report.mjs --github-summary
+          else
+            echo "FA did not run in this job." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  stop:
+    if: ${{ github.event.inputs.mode == 'stop' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: write
+      contents: read
+
+    steps:
+      - name: Cancel active FA runs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh run list --workflow=fa.yml --status=in_progress --limit 20 --json databaseId --jq '.[].databaseId' | while read -r id; do
+            [ -z "$id" ] && continue
+            [ "$id" = "${{ github.run_id }}" ] && continue
+            echo "cancelling run $id"
+            gh run cancel "$id" || true
+          done

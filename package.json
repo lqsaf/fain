@@ -1,0 +1,20 @@
+{
+  "name": "fain",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "fain — free ai news. Static frontend + Cloudflare Worker.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "verify": "node scripts/verify.mjs",
+    "verify:json": "node scripts/verify.mjs --json",
+    "fa": "node scripts/fa/loop.mjs",
+    "fa:once": "node scripts/fa/loop.mjs --once --force-local",
+    "fa:preflight": "node scripts/fa/loop.mjs --preflight",
+    "fa:status": "node scripts/fa/report.mjs",
+    "fa:queue": "node scripts/fa/queue.mjs list",
+    "fa:eval": "node scripts/fa/eval.mjs"
+  }
+}
