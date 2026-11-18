@@ -17,7 +17,7 @@
 
 ---
 
-## [ ] T01 · Относительное время в подвале
+## [x] T01 · Относительное время в подвале
 - area: frontend
 - priority: high
 - files: js/feed.js, js/data.js, index.html
@@ -33,6 +33,7 @@
     - Подвал обновляется при каждом рендере ленты; не показывать «Invalid Date».
     - `node scripts/verify.mjs` проходит.
 
+- done: 2026-11-18T19:10:33.138Z
 ## [ ] T02 · Ссылка «бесплатно помочь разработке»
 - area: frontend
 - priority: normal
