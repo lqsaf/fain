@@ -11,6 +11,7 @@ export const BASE_BRANCH = process.env.FA_BASE_BRANCH || "main";
 export const AGENT = "fa";
 export const REVIEWER_AGENT = "fa-reviewer";
 export const MODEL = process.env.FA_MODEL || "opencode/deepseek-v4.1-flash-free#high";
+export const REVIEW_MODEL = process.env.FA_REVIEW_MODEL || "opencode/deepseek-v4.1-flash-free#high";
 export const OPENCODE_BIN = process.env.FA_OPENCODE_BIN || "opencode";
 export const PROMPT_VERSION = "task-v1";
 export const AGENT_PROMPT_VERSION = "fa-v1";
