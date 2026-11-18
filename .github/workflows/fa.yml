@@ -76,7 +76,10 @@ jobs:
 
       - name: Install OpenCode
         if: steps.gate.outputs.enabled == 'true'
-        run: npm install -g "@opencode/cli@${{ vars.OPENCODE_VERSION || 'latest' }}"
+        run: |
+          set -euo pipefail
+          npm install -g "@opencode/cli@${{ vars.OPENCODE_VERSION || 'latest' }}"
+          opencode --version
 
       - name: Run FA
         if: steps.gate.outputs.enabled == 'true'
@@ -98,9 +101,7 @@ jobs:
           FA_MAX_ATTEMPTS: ${{ vars.FA_MAX_ATTEMPTS }}
           FA_TOKEN_BUDGET: ${{ vars.FA_TOKEN_BUDGET }}
           FA_MAX_INFRA_FAILURES: ${{ vars.FA_MAX_INFRA_FAILURES }}
-          FA_OPENCODE_BIN: opencode2
         run: |
-          run: |
           set -euo pipefail
           git config user.name "fain-fa[bot]"
           git config user.email "fain-fa[bot]@users.noreply.github.com"
