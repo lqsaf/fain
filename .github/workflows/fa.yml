@@ -76,7 +76,7 @@ jobs:
 
       - name: Install OpenCode
         if: steps.gate.outputs.enabled == 'true'
-        run: npm install -g "opencode-ai@${{ vars.OPENCODE_VERSION || 'latest' }}"
+        run: npm install -g "@opencode/cli@${{ vars.OPENCODE_VERSION || 'latest' }}"
 
       - name: Run FA
         if: steps.gate.outputs.enabled == 'true'
