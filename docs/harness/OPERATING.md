@@ -6,7 +6,8 @@ FA живёт в GitHub Actions и не требует ноутбука. Это�
 
 1. **Секрет провайдера.** `Settings → Secrets and variables → Actions → New repository secret`.
    Минимум один ключ: `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY` или `OPENCODE_API_KEY`.
-2. **Модель.** Переменная `FA_MODEL` (например, `google/gemini-2.5-pro`). Если не задана, используется значение по умолчанию из workflow.
+   Для модели по умолчанию `opencode/deepseek-v4.1-flash-free#high` нужен `OPENCODE_API_KEY`; если его нет, задайте `FA_MODEL` под тот провайдер, ключ которого есть.
+2. **Модель.** Переменная `FA_MODEL` (например, `opencode/deepseek-v4.1-flash-free#high`). Если не задана, используется значение по умолчанию из workflow: `opencode/deepseek-v4.1-flash-free#high`.
 3. **Права.** В `Settings → Actions → General → Workflow permissions` разрешить `Read and write permissions`.
 4. **Branch protection для `main`.** Только PR, обязательный check `fa-verify`, запрет force-push и удаления. Merge делает человек.
 5. **Опционально `FA_PAT`.** Fine-grained token с правами `contents`, `pull-requests`, `issues`. Нужен, чтобы PR, созданный FA, запускал проверки: push с `GITHUB_TOKEN` не триггерит другие workflow.
@@ -20,7 +21,7 @@ FA живёт в GitHub Actions и не требует ноутбука. Это�
 
 | Переменная | По умолчанию | Смысл |
 | --- | --- | --- |
-| `FA_MODEL` | `google/gemini-2.5-pro` | модель агента `fa` |
+| `FA_MODEL` | `opencode/deepseek-v4.1-flash-free#high` | модель агента `fa` (вариант `#high`; доступны `low`, `high`, `max`) |
 | `FA_ENABLED` | включено | глобальный выключатель |
 | `FA_MAX_TASKS` | без лимита | максимум задач за запуск |
 | `FA_TASK_TIMEOUT_MIN` | `25` | таймаут одной задачи |
@@ -73,7 +74,7 @@ FA живёт в GitHub Actions и не требует ноутбука. Это�
 Локально FA нужен для отладки harness, а не для постоянной работы.
 
 ```bash
-export FA_MODEL="google/gemini-2.5-pro"
+export FA_MODEL="opencode/deepseek-v4.1-flash-free#high"
 export GEMINI_API_KEY="..."        # не коммитить
 npm run fa:preflight
 npm run fa -- --force-local --once

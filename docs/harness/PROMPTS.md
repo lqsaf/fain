@@ -35,7 +35,7 @@ npm run verify
 ### Модель (уровень 2)
 
 ```bash
-npm run fa:eval -- --suite model --models google/gemini-2.5-pro,anthropic/claude-sonnet-5
+npm run fa:eval -- --suite model --models opencode/deepseek-v4.1-flash-free#high,opencode/deepseek-v4.1-flash-free#max
 ```
 
 Замер задаёт один и тот же детерминированный вопрос по репозиторию, требует JSON-ответ и проверяет его без модели:
@@ -53,7 +53,7 @@ npm run fa:eval -- --suite model --models google/gemini-2.5-pro,anthropic/claude
 
 | Версия | Модель | Pass | Шаги | Токены | Время |
 | --- | --- | --- | --- | --- | --- |
-| `fa-v1` / `task-v1` | `google/gemini-2.5-pro` | — | — | — | — |
+| `fa-v1` / `task-v1` | `opencode/deepseek-v4.1-flash-free#high` | — | — | — | — |
 
 Обновлять при каждом принятом изменении промпта или модели. Значения брать из `fa/eval/<timestamp>.json`.
 

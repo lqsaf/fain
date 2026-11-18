@@ -1,6 +1,7 @@
 ---
 description: Read-only reviewer изменений FA; выносит VERDICT: PASS или FAIL
 mode: all
+model: opencode/deepseek-v4.1-flash-free#high
 steps: 20
 color: "#7aa2f7"
 permissions:

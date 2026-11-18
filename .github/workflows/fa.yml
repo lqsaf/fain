@@ -89,7 +89,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
-          FA_MODEL: ${{ vars.FA_MODEL || 'google/gemini-2.5-pro' }}
+          FA_MODEL: ${{ vars.FA_MODEL || 'opencode/deepseek-v4.1-flash-free#high' }}
           FA_ENABLED: ${{ vars.FA_ENABLED }}
           FA_MAX_TASKS: ${{ vars.FA_MAX_TASKS }}
           FA_TASK_TIMEOUT_MIN: ${{ vars.FA_TASK_TIMEOUT_MIN }}

@@ -33,7 +33,7 @@
 Замер: фиксированная микрозадача в чистой копии репозитория, одинаковый промпт, одинаковые проверки. Считаем pass/fail, шаги, токены, время, размер диффа. Сравниваем с эталоном в [PROMPTS.md](PROMPTS.md).
 
 ```bash
-npm run fa:eval -- --suite model --models google/gemini-2.5-pro,anthropic/claude-sonnet-5
+npm run fa:eval -- --suite model --models opencode/deepseek-v4.1-flash-free#high,opencode/deepseek-v4.1-flash-free#max
 ```
 
 ## Уровень 3 — человек

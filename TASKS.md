@@ -40,12 +40,13 @@
 - context: docs/CONVENTIONS.md
 - verify: node scripts/verify.mjs
 - review: optional
-- needs: owner-url
+- url: https://lqsaf.github.io/sgak/
 - acceptance: |
     В подвале ниже ссылки на GitHub добавить кнопку-ссылку на sgak с текстом «бесплатно помочь разработке».
+    - Ссылка ведёт на `https://lqsaf.github.io/sgak/`.
     - Ссылка открывается в новой вкладке с `rel="noopener noreferrer"`.
     - Текст локализован в ru/en/zh через I18N.
-    - Владелец заполняет поле `- url: <адрес>` и убирает `needs:`; без URL задача не выполняется.
+    - Адрес берётся из поля `- url:` этой задачи, не хардкодится в нескольких местах.
 
 ## [ ] T03 · Тема без сброса, предсказуемый интерфейс, прозрачная топ-панель
 - area: frontend
@@ -210,20 +211,6 @@
     - Похожие пересказы одного события схлопываются, разные события с общими словами — нет.
     - Решение детерминировано и логируется.
     - При упоре в лимиты Gemini допускается выделение сравнения в отдельный воркер; контракт API сохраняется.
-    - `node scripts/verify.mjs` проходит.
-
-## [ ] T14 · API-ключи Gemini: без дублей и из env
-- area: backend-security
-- priority: high
-- files: worker.js, wrangler.toml
-- context: docs/harness/GOVERNANCE.md
-- verify: node scripts/verify.mjs
-- review: required
-- acceptance: |
-    Убрать дубли ключей в `GEMINI_KEYS` (индексы 0, 2, 5) и читать ключи из окружения.
-    - В коде нет захардкоженных ключей; источник — `env`.
-    - Пустой/битый ключ не роняет воркер, а попадает в fallback/ошибку без утечки значения.
-    - Ключи никогда не логируются и не попадают в ответ.
     - `node scripts/verify.mjs` проходит.
 
 ## [ ] T15 · Защитить POST /refresh и GET

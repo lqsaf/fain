@@ -54,7 +54,7 @@ description: Домен fain — статическая лента AI-новос
 
 - KV binding `FAIN_KV`, cron каждый час.
 - `GET /?lang=ru|en|zh` — лента; `POST /refresh` — генерация (токен, T15).
-- Ключи Gemini только из `env`, без дублей и логов (T14).
+- Ключи Gemini только из `env` (`getGeminiKeys(env)`), без дублей и логов.
 - Внешние запросы — `AbortController` 12–15 с, fallback на ключ/модель (T16).
 - `cleanText`: сначала decode entities, потом теги (T17).
 - Ошибка пайплайна не должна отдавать 500, если в KV есть прошлая лента.

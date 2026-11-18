@@ -50,7 +50,7 @@
 ## Локальный запуск
 
 ```bash
-export FA_MODEL="google/gemini-2.5-pro"   # или другой provider/model
+export FA_MODEL="opencode/deepseek-v4.1-flash-free#high"   # или другой provider/model
 npm run fa:preflight
 npm run fa
 ```
