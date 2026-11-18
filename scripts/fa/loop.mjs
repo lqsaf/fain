@@ -455,13 +455,27 @@ async function attemptTask(task, attempt) {
   }
 
   if (result.code !== 0) {
-    const errTail = (readFileSafe(stderrFile) || "").split("\n").filter(Boolean).slice(-5).join(" | ").slice(0, 500);
-    const outTail = (readFileSafe(stdoutFile) || "").split("\n").filter(Boolean).slice(-5).join(" | ").slice(0, 500);
-    const detail = errTail || outTail || "no output";
-    if (metrics.tokenTotal === 0 && /limit|quota|rate|429|401|403|unauthorized|api key|invalid|unknown|not found|configuration/i.test(detail)) {
-      log("task.infra", { task: task.id, message: `opencode exit ${result.code}: ${detail}` });
-      return { kind: "infra", reason: `opencode exit ${result.code}: ${detail}`, metrics, durationMs: Date.now() - started };
+    const stdoutLines = (readFileSafe(stdoutFile) || "").split("\n").filter(Boolean);
+    let jsonError = "";
+    for (let i = stdoutLines.length - 1; i >= 0; i -= 1) {
+      try {
+        const ev = JSON.parse(stdoutLines[i]);
+        if (ev.type === "error" || ev.error) {
+          jsonError = `${ev.error?.type || "error"}: ${ev.error?.message || JSON.stringify(ev.error)}`;
+          break;
+        }
+      } catch {
+        // не JSON-строка
+      }
     }
+    const errTail = (readFileSafe(stderrFile) || "").split("\n").filter(Boolean).slice(-5).join(" | ").slice(0, 500);
+    const detail = (jsonError || errTail || stdoutLines.slice(-1)[0] || "no output").slice(0, 500);
+
+    if (/provider\.quota|provider\.auth|exceeded your current quota|free usage limit|rate limit|too many requests|quota|\b429\b|\b401\b|\b403\b/i.test(detail)) {
+      log("task.infra", { task: task.id, message: `opencode exit ${result.code}: ${detail}` });
+      return { kind: "infra", reason: detail, metrics, durationMs: Date.now() - started };
+    }
+
     log("task.fail", { task: task.id, message: `opencode exit ${result.code}: ${detail}` });
     return {
       kind: "attempt",
