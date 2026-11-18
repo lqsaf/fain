@@ -468,18 +468,30 @@ function isValidItem(item) {
 }
 
 function cleanStoreItems(items, now) {
-  return items
+  const filtered = items
     .filter(item => {
       if (!isValidItem(item)) return false;
       const age = now - new Date(item.publishedAt).getTime();
       return !Number.isNaN(age) && age >= 0 && age <= THIRTY_DAYS_MS;
     })
-    .sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime())
-    .filter((item, idx, self) => {
-      // Basic deduplication
-      if (idx === 0) return true;
-      return !self.slice(0, idx).some(prev => isSimilarTitle(item.originalTitle, prev.originalTitle));
-    });
+    .sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime());
+
+  const result = [];
+  const dailyCounts = {};
+
+  for (const item of filtered) {
+    // Deduplication
+    if (result.some(prev => isSimilarTitle(item.originalTitle, prev.originalTitle))) continue;
+
+    // Daily limit (UTC)
+    const dateStr = item.publishedAt.split('T')[0];
+    dailyCounts[dateStr] = (dailyCounts[dateStr] || 0) + 1;
+    if (dailyCounts[dateStr] > 5) continue;
+
+    result.push(item);
+  }
+
+  return result;
 }
 
 function stripPublisherSuffix(text) {
