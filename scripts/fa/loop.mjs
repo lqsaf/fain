@@ -97,6 +97,10 @@ function requireCleanWorktree() {
   }
 }
 
+function needsProviderKey(model) {
+  return !/^opencode\/[^#]*-free(#.*)?$/i.test(String(model || "").trim());
+}
+
 function preflight() {
   const problems = [];
   const warnings = [];
@@ -118,7 +122,7 @@ function preflight() {
   const remote = git.git(["remote", "get-url", "origin"], { allowFailure: true });
   if (remote.code !== 0) problems.push("git remote origin is missing");
 
-  if (isCi()) {
+  if (isCi() && needsProviderKey(MODEL)) {
     const keys = ["GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY", "OPENCODE_API_KEY"];
     if (!keys.some((key) => process.env[key])) problems.push(`no provider key in env (${keys.join(", ")})`);
   }
