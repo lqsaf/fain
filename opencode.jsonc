@@ -3,7 +3,9 @@
 
   // FA работает без человека: контекст сжимается, вывод инструментов ограничен.
   "compaction": {
-    "auto": true
+    "auto": true,
+    "keep": { "tokens": 12000 },
+    "buffer": "10%"
   },
   "tool_output": {
     "max_lines": 1200,
@@ -11,6 +13,9 @@
   },
   "watcher": {
     "ignore": ["fa/logs/**", "fa/state/**", "fa/eval/**", "node_modules/**", ".wrangler/**"]
+  },
+  "experimental": {
+    "todo": true
   },
 
   // Базовые правила для человека. Агент fa добавляет свои запреты в .opencode/agents/fa.md.
@@ -48,10 +53,13 @@
 
   // Жёсткие запреты: сохранённые approval не могут их отменить.
   "policies": [
-    { "action": "shell", "resource": "git push --force*", "effect": "deny" },
-    { "action": "shell", "resource": "rm -rf *", "effect": "deny" },
-    { "action": "shell", "resource": "sudo *", "effect": "deny" },
-    { "action": "shell", "resource": "wrangler deploy*", "effect": "deny" },
-    { "action": "shell", "resource": "npm publish*", "effect": "deny" }
+    { "action": "tool.use", "resource": "shell:git push --force*", "effect": "deny" },
+    { "action": "tool.use", "resource": "shell:git push -f*", "effect": "deny" },
+    { "action": "tool.use", "resource": "shell:git reset --hard*", "effect": "deny" },
+    { "action": "tool.use", "resource": "shell:git clean -fdx*", "effect": "deny" },
+    { "action": "tool.use", "resource": "shell:rm -rf *", "effect": "deny" },
+    { "action": "tool.use", "resource": "shell:sudo *", "effect": "deny" },
+    { "action": "tool.use", "resource": "shell:wrangler deploy*", "effect": "deny" },
+    { "action": "tool.use", "resource": "shell:npm publish*", "effect": "deny" }
   ]
 }
