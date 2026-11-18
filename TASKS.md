@@ -111,7 +111,7 @@
     - Версия локализована («версия» / «version» / «版本»).
     - `node scripts/verify.mjs` проходит.
 
-## [ ] T07 · Кэш ленты раздельно по языкам
+## [x] T07 · Кэш ленты раздельно по языкам
 - area: frontend
 - priority: high
 - files: js/data.js, js/main.js, js/feed.js
@@ -126,6 +126,7 @@
     - После смены языка лента сразу показывает карточки целевого языка.
     - `node scripts/verify.mjs` проходит.
 
+- done: 2026-11-18T20:43:23.744Z
 ## [ ] T08 · Мультиязычный pipeline в worker.js
 - area: backend
 - priority: high
