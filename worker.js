@@ -61,10 +61,11 @@ const STEP_SCHEMAS = {
           type: "OBJECT",
           properties: {
             id: { type: "INTEGER" },
-            title: { type: "STRING" },
-            summary: { type: "STRING" }
+            ru: { type: "OBJECT", properties: { title: { type: "STRING" }, summary: { type: "STRING" } }, required: ["title", "summary"] },
+            en: { type: "OBJECT", properties: { title: { type: "STRING" }, summary: { type: "STRING" } }, required: ["title", "summary"] },
+            zh: { type: "OBJECT", properties: { title: { type: "STRING" }, summary: { type: "STRING" } }, required: ["title", "summary"] }
           },
-          required: ["id", "title", "summary"]
+          required: ["id", "ru", "en", "zh"]
         }
       }
     },
@@ -96,9 +97,11 @@ const STEP_SCHEMAS = {
           type: "OBJECT",
           properties: {
             id: { type: "INTEGER" },
-            analysis: { type: "STRING" }
+            ru: { type: "STRING" },
+            en: { type: "STRING" },
+            zh: { type: "STRING" }
           },
-          required: ["id", "analysis"]
+          required: ["id", "ru", "en", "zh"]
         }
       }
     },
@@ -106,7 +109,6 @@ const STEP_SCHEMAS = {
   }
 };
 
-let modelRoundRobinIndex = 0;
 let memoryFallbackStore = { lastUpdated: null, items: [] };
 
 const CORS_HEADERS = {
@@ -123,6 +125,7 @@ export default {
     }
 
     const url = new URL(request.url);
+    const lang = ["ru", "en", "zh"].includes(url.searchParams.get("lang")) ? url.searchParams.get("lang") : "ru";
 
     if (request.method === "POST" && url.pathname === "/refresh") {
       const updatedStore = await runHourlyPipeline(env);
@@ -138,7 +141,23 @@ export default {
       store.items = cleanStoreItems(store.items, now);
     }
 
-    return new Response(JSON.stringify(store), { headers: CORS_HEADERS });
+    // Фильтруем данные под нужный язык
+    const responseStore = {
+      lastUpdated: store.lastUpdated,
+      items: store.items.map(item => ({
+        id: item.id,
+        url: item.url,
+        source: item.source,
+        publishedAt: item.publishedAt,
+        tag: item.tag,
+        title: item.translations[lang].title,
+        summary: item.translations[lang].summary,
+        analysis: item.translations[lang].analysis,
+        originalTitle: item.originalTitle
+      }))
+    };
+
+    return new Response(JSON.stringify(responseStore), { headers: CORS_HEADERS });
   },
 
   async scheduled(event, env, ctx) {
@@ -151,7 +170,7 @@ async function runHourlyPipeline(env) {
   const now = Date.now();
   const store = await loadStore(env);
 
-  // 0. Очищаем базу от записей старше 30 дней, любых непереведенных карточек и дублей
+  // 0. Очищаем базу
   store.items = cleanStoreItems(store.items || [], now);
 
   const existingUrls = new Set(store.items.map(i => normalizeUrl(i.url)));
@@ -165,14 +184,14 @@ async function runHourlyPipeline(env) {
 
   const pool = rawCandidates.slice(0, 45);
 
-  // КЛЮЧ 1: Отбор прорывных ИИ-новостей + жесткая группировка по темам
+  // КЛЮЧ 1: Отбор
   const step1Prompt = `Ты — главный фильтр ИИ-новостей проекта fain.
-Из списка кандидатов выбери только прорывные и значимые новости строго про ИИ (выход новых ИИ-моделей, важные ИИ-функции, значимые исследования и крупные события индустрии ИИ).
-СТРОГИЕ ПРАВИЛА ОТСЕВА:
-1. Отсекай новости, не связанные напрямую с искусственным интеллектом (обычные гаджеты, игры, 3D/VR-фильмы, общие обновления ОС и рекламные кейсы клиентов).
-2. ПРАВИЛО ОДНОГО СЮЖЕТА: Если в списке несколько новостей про одно и то же устройство, модель, презентацию или корпоративный сюжет — выбери СТРОГО ОДНУ самую полную и обзорную новость, а все частные детали отбрось.
-3. Выбери максимум ${MAX_BATCH_SIZE} новостей, каждая из которых должна быть на 100% уникальную тему.
-Верни строго JSON-объект формата: {"selectedIds": [числа id из списка]}
+Из списка кандидатов выбери только прорывные и значимые новости строго про ИИ.
+СТРОГИЕ ПРАВИЛА:
+1. Только ИИ (модели, функции, исследования).
+2. ПРАВИЛО ОДНОГО СЮЖЕТА: если сюжет один — выбери ОДНУ самую полную новость.
+3. Максимум ${MAX_BATCH_SIZE} новостей.
+Верни JSON: {"selectedIds": [числа id]}
 
 Кандидаты:
 ${JSON.stringify(pool.map((item, idx) => ({
@@ -206,23 +225,22 @@ ${JSON.stringify(pool.map((item, idx) => ({
     return store;
   }
 
-  // КЛЮЧ 2: Семантическая проверка со старой базой (включая summary) и внутри пакета
+  // КЛЮЧ 2: Дедупликация
   const publishedHistory = store.items.slice(0, 60).map(item => ({
-    title: item.title,
+    title: item.translations.ru.title,
     originalTitle: item.originalTitle,
-    summary: item.summary
+    summary: item.translations.ru.summary
   }));
 
-  const step2Prompt = `Ты — строгий тематический дедупликатор новостей.
-Твоя задача — не допустить появления в ленте нескольких новостей на одну и ту же тему, сюжет или продукт.
-1. Сравни новых кандидатов с "Уже опубликованными новостями". Отбрось кандидата, если этот продукт, релиз модели, устройство, судебный иск или сюжет УЖЕ освещались в опубликованных новостях — даже если заметка написана другим изданием или раскрывает мелкую новую деталь.
-2. Сравни новых кандидатов МЕЖДУ СОБОЙ. Если среди кандидатов есть 2+ новости об одном и том же продукте, человеке или событии, оставь в uniqueIds только ОДНОГО кандидата.
-Верни строго JSON-объект формата: {"uniqueIds": [числа id уникальных кандидатов]}
+  const step2Prompt = `Ты — строгий тематический дедупликатор.
+1. Сравни кандидатов с опубликованными. Отбрось дубли.
+2. Сравни кандидатов между собой.
+Верни JSON: {"uniqueIds": [числа id]}
 
-Уже опубликованные новости:
+Уже опубликовано:
 ${JSON.stringify(publishedHistory)}
 
-Новые кандидаты:
+Кандидаты:
 ${JSON.stringify(candidates.map((c, idx) => ({
   id: idx,
   title: c.rawTitle,
@@ -230,10 +248,7 @@ ${JSON.stringify(candidates.map((c, idx) => ({
 })))}`;
 
   const step2Res = await callGeminiWithFallback(1, step2Prompt, STEP_SCHEMAS.step2, env);
-  if (!Array.isArray(step2Res?.uniqueIds)) {
-    console.warn("Шаг 2 (дедупликация) не вернул ответ, отменяем публикацию батча во избежание дублей.");
-    return store;
-  }
+  if (!Array.isArray(step2Res?.uniqueIds)) return store;
 
   const seenStep2Ids = new Set();
   const uniqueCandidates = [];
@@ -252,13 +267,11 @@ ${JSON.stringify(candidates.map((c, idx) => ({
     return store;
   }
 
-  // КЛЮЧ 3: Редактор — составляет заголовок и краткое описание СТРОГО на русском языке
-  const step3Prompt = `Ты — минималистичный русскоязычный техно-редактор ИИ-новостника fain.
-Для каждой новости ОБЯЗАТЕЛЬНО переведи и напиши НА РУССКОМ ЯЗЫКЕ:
-1. "title": точный, информативный заголовок на русском языке без кликбейта и воды (названия компаний и проектов вроде OpenAI, Claude, llama.cpp можно оставлять латиницей, но сам заголовок обязан быть на русском языке).
-2. "summary": суть новости в 2–3 предложениях на русском языке кратко, ясно и по делу (даже если snippet пустой или короткий — раскрой суть события по заголовку и источнику, никогда не пиши заглушек).
-Верни строго JSON-объект формата:
-{"articles": [{"id": число, "title": "...", "summary": "..."}]}
+  // КЛЮЧ 3: Редактор — переводы на RU, EN, ZH
+  const step3Prompt = `Ты — техно-редактор.
+Для каждой новости создай заголовок и summary на трёх языках: RU, EN, ZH.
+Соблюдай профессиональный стиль.
+Верни JSON: {"articles": [{"id": число, "ru": {...}, "en": {...}, "zh": {...}}]}
 
 Новости:
 ${JSON.stringify(candidates.map((c, idx) => ({
@@ -269,56 +282,30 @@ ${JSON.stringify(candidates.map((c, idx) => ({
 })))}`;
 
   const step3Res = await callGeminiWithFallback(2, step3Prompt, STEP_SCHEMAS.step3, env);
-  if (!Array.isArray(step3Res?.articles) || step3Res.articles.length === 0) {
-    console.warn("Шаг 3 (редактор) не вернул переводы, отменяем сохранение сырых английских новостей.");
-    return store;
-  }
+  if (!Array.isArray(step3Res?.articles) || step3Res.articles.length === 0) return store;
 
   const articlesMap = new Map();
   for (const art of step3Res.articles) {
-    const id = Number(art.id);
-    if (!Number.isNaN(id) && isRussianText(art.title) && isRussianText(art.summary)) {
-      articlesMap.set(id, {
-        title: art.title.trim(),
-        summary: art.summary.trim()
-      });
-    }
+    articlesMap.set(Number(art.id), art);
   }
 
-  // Отсекаем любые кандидаты, которые не получили валидный русский перевод на Шаге 3
   const translatedCandidates = [];
   for (let i = 0; i < candidates.length; i++) {
-    const ed = articlesMap.get(i);
-    if (ed) {
-      translatedCandidates.push({
-        ...candidates[i],
-        ruTitle: ed.title,
-        ruSummary: ed.summary
-      });
+    const art = articlesMap.get(i);
+    if (art) {
+      translatedCandidates.push({ ...candidates[i], translations: { ru: art.ru, en: art.en, zh: art.zh } });
     }
   }
 
-  if (translatedCandidates.length === 0) {
-    console.warn("Ни один кандидат не прошел проверку русского перевода на Шаге 3.");
-    return store;
-  }
-
-  // КЛЮЧ 4: Тегировщик — присваивает #релиз, #анонс, #исследование или пустую строку
-  const step4Prompt = `Ты — классификатор ИИ-новостей.
-Для каждой новости выбери строго один тег из списка:
-- "#релиз" (если продукт, модель, функция или код уже вышли и доступны)
-- "#анонс" (если функцию или модель только пообещали выпустить в будущем)
-- "#исследование" (если речь о научной работе, бенчмарке или техническом открытии)
-- "" (пустая строка, если ни один из трех тегов не подходит)
-
-Верни строго JSON-объект формата:
-{"tags": [{"id": число, "tag": "#релиз" | "#анонс" | "#исследование" | ""}]}
+  // КЛЮЧ 4: Тегировщик
+  const step4Prompt = `Присвой тег: "#релиз", "#анонс", "#исследование" или "".
+Верни JSON: {"tags": [{"id": число, "tag": "..."}]}
 
 Новости:
 ${JSON.stringify(translatedCandidates.map((c, idx) => ({
   id: idx,
-  title: c.ruTitle,
-  summary: c.ruSummary
+  title: c.translations.en.title, // используем английский для понимания
+  summary: c.translations.en.summary
 })))}`;
 
   const step4Res = await callGeminiWithFallback(3, step4Prompt, STEP_SCHEMAS.step4, env);
@@ -326,41 +313,32 @@ ${JSON.stringify(translatedCandidates.map((c, idx) => ({
   const validTags = new Set(["#релиз", "#анонс", "#исследование", ""]);
   if (Array.isArray(step4Res?.tags)) {
     for (const t of step4Res.tags) {
-      const id = Number(t.id);
       const cleanTag = (t.tag || "").trim().toLowerCase();
-      if (!Number.isNaN(id)) {
-        tagsMap.set(id, validTags.has(cleanTag) ? cleanTag : "");
-      }
+      tagsMap.set(Number(t.id), validTags.has(cleanTag) ? cleanTag : "");
     }
   }
 
-  // КЛЮЧ 5: ИИ-аналитик — глубокий разбор на русском языке
+  // КЛЮЧ 5: Аналитик — на 3 языках
   const step5Prompt = `Ты — ведущий ИИ-аналитик.
-Для каждой новости напиши емкий аналитический разбор на русском языке (3–4 предложения):
-как это повлияет на индустрию, что это значит для обычного пользователя или разработчиков, и в чем ключевое преимущество или подвох. Без воды и общих фраз.
-Верни строго JSON-объект формата:
-{"analyses": [{"id": число, "analysis": "..."}]}
+Для каждой новости напиши аналитический разбор на RU, EN, ZH.
+Верни JSON: {"analyses": [{"id": число, "ru": "...", "en": "...", "zh": "..."}]}
 
 Новости:
 ${JSON.stringify(translatedCandidates.map((c, idx) => ({
   id: idx,
-  source: c.source,
-  title: c.ruTitle,
-  summary: c.ruSummary
+  title: c.translations.en.title,
+  summary: c.translations.en.summary
 })))}`;
 
   const step5Res = await callGeminiWithFallback(4, step5Prompt, STEP_SCHEMAS.step5, env);
   const analysisMap = new Map();
   if (Array.isArray(step5Res?.analyses)) {
     for (const a of step5Res.analyses) {
-      const id = Number(a.id);
-      if (!Number.isNaN(id) && isRussianText(a.analysis)) {
-        analysisMap.set(id, a.analysis.trim());
-      }
+      analysisMap.set(Number(a.id), { ru: a.ru, en: a.en, zh: a.zh });
     }
   }
 
-  // Собираем только полностью готовые русскоязычные карточки
+  // Собираем
   const newItems = [];
   for (let idx = 0; idx < translatedCandidates.length; idx++) {
     const c = translatedCandidates[idx];
@@ -369,10 +347,12 @@ ${JSON.stringify(translatedCandidates.map((c, idx) => ({
 
     newItems.push({
       id: generateId(c.url),
-      title: c.ruTitle,
+      translations: {
+        ru: { title: c.translations.ru.title, summary: c.translations.ru.summary, analysis: analysis.ru },
+        en: { title: c.translations.en.title, summary: c.translations.en.summary, analysis: analysis.en },
+        zh: { title: c.translations.zh.title, summary: c.translations.zh.summary, analysis: analysis.zh }
+      },
       originalTitle: c.rawTitle,
-      summary: c.ruSummary,
-      analysis,
       tag: tagsMap.get(idx) ?? "",
       url: c.url,
       source: c.source,
@@ -382,73 +362,43 @@ ${JSON.stringify(translatedCandidates.map((c, idx) => ({
 
   store.items = cleanStoreItems([...newItems, ...store.items], now).slice(0, 50);
   store.lastUpdated = new Date(now).toISOString();
-
   await saveStore(env, store);
   return store;
 }
 
-// Вызов Gemini: основной ключ шага -> 6-й резервный ключ -> остальные ключи
-
+// Вызов Gemini
 async function callGeminiWithFallback(keyIndex, promptText, responseSchema, env) {
   const keys = getGeminiKeys(env);
-  
-  const primaryKey = keys[keyIndex];
-  const sixthReserveKey = keys[5];
-
-  // Порядок ключей: 1) целевой ключ шага, 2) 6-й резервный ключ, 3) остальные ключи
-  const orderedKeys = Array.from(
-    new Set([primaryKey, sixthReserveKey, ...keys].filter(Boolean))
-  );
-
+  const orderedKeys = Array.from(new Set([keys[keyIndex], keys[5], ...keys].filter(Boolean)));
   const deadModels = new Set();
 
   for (const apiKey of orderedKeys) {
-    // Идем строго по возрастанию сложности: 3.1-flash-lite -> 3.5-flash-lite -> 3.6-flash -> 3.8-flash
-    for (let i = 0; i < GEMINI_MODELS.length; i++) {
-      const modelName = GEMINI_MODELS[i];
+    for (const modelName of GEMINI_MODELS) {
       if (deadModels.has(modelName)) continue;
-
       const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
-
       try {
         const response = await fetch(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             contents: [{ parts: [{ text: promptText }] }],
-            generationConfig: {
-              responseMimeType: "application/json",
-              responseSchema
-            }
+            generationConfig: { responseMimeType: "application/json", responseSchema }
           })
         });
-
-        if (response.status === 404) {
-          deadModels.add(modelName);
-          continue;
-        }
-
-        if (!response.ok) {
-          console.warn(`Модель ${modelName} (шаг #${keyIndex + 1}) вернула ${response.status}, переходим к следующей...`);
-          continue;
-        }
-
+        if (response.status === 404) { deadModels.add(modelName); continue; }
+        if (!response.ok) continue;
         const data = await response.json();
         const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
         if (!rawText) continue;
-
         const cleanedJson = rawText.replace(/^```json\s*/i, "").replace(/```\s*$/i, "").trim();
         return JSON.parse(cleanedJson);
-      } catch (err) {
-        console.warn(`Ошибка модели ${modelName} на шаге #${keyIndex + 1}:`, err.message);
-      }
+      } catch (err) { console.warn(err.message); }
     }
   }
-
   return null;
 }
 
-// Параллельный парсинг всех 13 RSS/Atom лент с пре-фильтрацией дублей и рекламы
+// RSS
 async function fetchAllRssFeeds(existingUrls, existingItems, now) {
   const results = await Promise.allSettled(
     RSS_SOURCES.map(async source => {
@@ -462,9 +412,7 @@ async function fetchAllRssFeeds(existingUrls, existingItems, now) {
         if (!res.ok) return [];
         const xml = await res.text();
         return parseFeedXml(xml, source.name, now);
-      } finally {
-        clearTimeout(timeout);
-      }
+      } finally { clearTimeout(timeout); }
     })
   );
 
@@ -476,52 +424,29 @@ async function fetchAllRssFeeds(existingUrls, existingItems, now) {
     for (const item of res.value) {
       const normUrl = normalizeUrl(item.url);
       if (!normUrl || existingUrls.has(normUrl) || seenUrlsInBatch.has(normUrl)) continue;
-
-      // Отсекаем рекламные клиентские кейсы OpenAI
       if (normUrl.includes("/business/customer-stories/")) continue;
-
-      // Алгоритмическая проверка на совпадение заголовков с базой и внутри пула
-      const isDupInStore = existingItems.some(
-        ex => isSimilarTitle(item.rawTitle, ex.originalTitle) || isSimilarTitle(item.rawTitle, ex.title)
-      );
+      const isDupInStore = existingItems.some(ex => isSimilarTitle(item.rawTitle, ex.originalTitle));
       const isDupInBatch = allItems.some(b => isSimilarTitle(item.rawTitle, b.rawTitle));
       if (isDupInStore || isDupInBatch) continue;
-
       seenUrlsInBatch.add(normUrl);
       allItems.push(item);
     }
   }
-
   return allItems.sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime());
 }
 
-// Универсальный парсер RSS 2.0 (<item>) и Atom (<entry>)
 function parseFeedXml(xml, sourceName, now) {
   const items = [];
   const blocks = xml.match(/<(item|entry)[\s>][\s\S]*?<\/\1>/gi) || [];
-
   for (const block of blocks) {
     const rawTitle = stripPublisherSuffix(cleanText(extractTag(block, "title")));
     const link = extractLink(block);
-    const dateStr =
-      extractTag(block, "pubDate") ||
-      extractTag(block, "published") ||
-      extractTag(block, "updated") ||
-      extractTag(block, "dc:date");
-
-    const rawDesc =
-      extractTag(block, "description") ||
-      extractTag(block, "summary") ||
-      extractTag(block, "content:encoded") ||
-      extractTag(block, "content");
-
+    const dateStr = extractTag(block, "pubDate") || extractTag(block, "published") || extractTag(block, "updated") || extractTag(block, "dc:date");
+    const rawDesc = extractTag(block, "description") || extractTag(block, "summary") || extractTag(block, "content:encoded") || extractTag(block, "content");
     if (!rawTitle || !link) continue;
-
     let pubTime = dateStr ? Date.parse(dateStr.trim()) : now;
     if (Number.isNaN(pubTime) || pubTime > now) pubTime = now;
-
     if (now - pubTime > THIRTY_DAYS_MS) continue;
-
     items.push({
       source: sourceName,
       url: link.trim(),
@@ -530,87 +455,48 @@ function parseFeedXml(xml, sourceName, now) {
       publishedAt: new Date(pubTime).toISOString()
     });
   }
-
   return items;
 }
 
-// Проверка карточки на валидный русский перевод и отсутствие технических заглушек
-function isRussianText(str) {
-  return typeof str === "string" && str.trim().length > 3 && /[а-яёА-ЯЁ]/.test(str);
-}
-
-function isValidRussianItem(item) {
-  if (!item || !item.id || !item.publishedAt) return false;
-  if (!isRussianText(item.title) || !isRussianText(item.summary) || !isRussianText(item.analysis)) {
-    return false;
-  }
-  if (item.summary.trim() === "Подробности доступны в источнике.") return false;
+function isValidItem(item) {
+  if (!item || !item.id || !item.publishedAt || !item.translations) return false;
   return true;
 }
 
-// Синхронная очистка базы от старых, непереведенных и дублирующихся записей
 function cleanStoreItems(items, now) {
-  const sorted = items
+  return items
     .filter(item => {
-      if (!isValidRussianItem(item)) return false;
+      if (!isValidItem(item)) return false;
       const age = now - new Date(item.publishedAt).getTime();
       return !Number.isNaN(age) && age >= 0 && age <= THIRTY_DAYS_MS;
     })
-    .sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime());
-
-  const unique = [];
-  const seenIds = new Set();
-
-  for (const item of sorted) {
-    if (seenIds.has(item.id)) continue;
-    const hasTopicDup = unique.some(
-      u => isSimilarTitle(item.originalTitle, u.originalTitle) || isSimilarTitle(item.title, u.title)
-    );
-    if (hasTopicDup) continue;
-
-    seenIds.add(item.id);
-    unique.push(item);
-  }
-
-  return unique;
+    .sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime())
+    .filter((item, idx, self) => {
+      // Basic deduplication
+      if (idx === 0) return true;
+      return !self.slice(0, idx).some(prev => isSimilarTitle(item.originalTitle, prev.originalTitle));
+    });
 }
 
-// Убираем хвосты названий изданий из Google News (например, " - TechCrunch", " - Politico")
 function stripPublisherSuffix(text) {
   if (!text) return "";
   return text.replace(/\s+[-–—]\s+[A-Za-z0-9.&'\s]{2,35}$/, "").trim();
 }
 
-// Токенизация и проверка близости заголовков для отсева дублей до LLM
 function tokenizeTitle(str) {
   if (!str) return [];
-  const stopWords = new Set([
-    "the", "and", "for", "with", "from", "that", "this", "its", "new", "now",
-    "how", "why", "what", "launches", "announces", "introduces", "releases",
-    "says", "after", "over", "into", "more", "about", "can", "will", "just",
-    "как", "для", "что", "или", "при", "после", "из-за", "через", "компания",
-    "представила", "выпустила", "анонсировала", "запустила", "новые", "новый"
-  ]);
-  return stripPublisherSuffix(str)
-    .toLowerCase()
-    .replace(/[^a-zа-яё0-9\s]/gi, " ")
-    .split(/\s+/)
-    .filter(w => w.length > 2 && !stopWords.has(w));
+  const stopWords = new Set(["the", "and", "for", "with", "from", "that", "this", "its", "new", "now", "how", "why", "what", "launches", "announces", "introduces", "releases", "says", "after", "over", "into", "more", "about", "can", "will", "just"]);
+  return stripPublisherSuffix(str).toLowerCase().replace(/[^a-z0-9\s]/gi, " ").split(/\s+/).filter(w => w.length > 2 && !stopWords.has(w));
 }
 
 function isSimilarTitle(titleA, titleB) {
   const tokensA = tokenizeTitle(titleA);
   const tokensB = tokenizeTitle(titleB);
   if (tokensA.length < 3 || tokensB.length < 3) return false;
-
   const setB = new Set(tokensB);
   let matches = 0;
-  for (const t of tokensA) {
-    if (setB.has(t)) matches++;
-  }
-
-  const overlap = matches / Math.min(tokensA.length, tokensB.length);
-  return overlap >= 0.5;
+  for (const t of tokensA) if (setB.has(t)) matches++;
+  return (matches / Math.min(tokensA.length, tokensB.length)) >= 0.5;
 }
 
 function extractTag(xmlBlock, tagName) {
@@ -621,33 +507,19 @@ function extractTag(xmlBlock, tagName) {
 }
 
 function extractLink(xmlBlock) {
-  const atomHref = xmlBlock.match(/<link[^>]+rel=["']alternate["'][^>]+href=["']([^"']+)["']/i) ||
-                   xmlBlock.match(/<link[^>]+href=["']([^"']+)["']/i);
+  const atomHref = xmlBlock.match(/<link[^>]+rel=["']alternate["'][^>]+href=["']([^"']+)["']/i) || xmlBlock.match(/<link[^>]+href=["']([^"']+)["']/i);
   if (atomHref && atomHref[1]) return decodeEntities(atomHref[1]);
-  const rssLink = extractTag(xmlBlock, "link");
-  return decodeEntities(rssLink);
+  return decodeEntities(extractTag(xmlBlock, "link"));
 }
 
 function cleanText(str) {
   if (!str) return "";
-  return decodeEntities(
-    str
-      .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/gi, "$1")
-      .replace(/<[^>]+>/g, " ")
-      .replace(/\s+/g, " ")
-      .trim()
-  );
+  return decodeEntities(str.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/gi, "$1").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim());
 }
 
 function decodeEntities(str) {
   if (!str) return "";
-  return str
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;|&apos;/g, "'")
-    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)));
+  return str.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)));
 }
 
 function normalizeUrl(url) {
@@ -658,10 +530,7 @@ function normalizeUrl(url) {
 function generateId(url) {
   const norm = normalizeUrl(url);
   let hash = 2166136261;
-  for (let i = 0; i < norm.length; i++) {
-    hash ^= norm.charCodeAt(i);
-    hash = Math.imul(hash, 16777619);
-  }
+  for (let i = 0; i < norm.length; i++) { hash ^= norm.charCodeAt(i); hash = Math.imul(hash, 16777619); }
   return "fain_" + (hash >>> 0).toString(36);
 }
 
@@ -670,9 +539,7 @@ async function loadStore(env) {
     try {
       const data = await env.FAIN_KV.get(KV_STORE_KEY, "json");
       if (data && Array.isArray(data.items)) return data;
-    } catch (e) {
-      console.warn("Ошибка чтения KV:", e);
-    }
+    } catch (e) { console.warn("Ошибка чтения KV:", e); }
   }
   return memoryFallbackStore;
 }
@@ -682,8 +549,6 @@ async function saveStore(env, store) {
   if (env && env.FAIN_KV) {
     try {
       await env.FAIN_KV.put(KV_STORE_KEY, JSON.stringify(store));
-    } catch (e) {
-      console.warn("Ошибка записи KV:", e);
-    }
+    } catch (e) { console.warn("Ошибка записи KV:", e); }
   }
 }

@@ -127,7 +127,7 @@
     - `node scripts/verify.mjs` проходит.
 
 - done: 2026-11-18T20:43:23.744Z
-## [ ] T08 · Мультиязычный pipeline в worker.js
+## [x] T08 · Мультиязычный pipeline в worker.js
 - area: backend
 - priority: high
 - files: worker.js, wrangler.toml
@@ -142,6 +142,7 @@
     - Неизвестный/отсутствующий `lang` даёт безопасный fallback (ru), без 500.
     - `node scripts/verify.mjs` проходит.
 
+- done: 2026-11-18T22:36:03.862Z
 ## [ ] T09 · Убрать жёсткую привязку к кириллице
 - area: backend
 - priority: high
