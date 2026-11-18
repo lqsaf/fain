@@ -98,6 +98,7 @@ jobs:
           FA_MAX_ATTEMPTS: ${{ vars.FA_MAX_ATTEMPTS }}
           FA_TOKEN_BUDGET: ${{ vars.FA_TOKEN_BUDGET }}
           FA_MAX_INFRA_FAILURES: ${{ vars.FA_MAX_INFRA_FAILURES }}
+          FA_OPENCODE_BIN: opencode2
         run: |
           run: |
           set -euo pipefail
