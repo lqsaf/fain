@@ -128,6 +128,16 @@ export default {
     const lang = ["ru", "en", "zh"].includes(url.searchParams.get("lang")) ? url.searchParams.get("lang") : "ru";
 
     if (request.method === "POST" && url.pathname === "/refresh") {
+      const auth = request.headers.get("Authorization");
+      if (!auth || !auth.startsWith("Bearer ") || !env.REFRESH_TOKEN) return new Response("Unauthorized", { status: 401 });
+
+      const token = auth.split(" ")[1];
+      const encoder = new TextEncoder();
+      const a = encoder.encode(token);
+      const b = encoder.encode(env.REFRESH_TOKEN);
+
+      if (a.length !== b.length || !crypto.subtle.timingSafeEqual(a, b)) return new Response("Unauthorized", { status: 401 });
+
       const updatedStore = await runHourlyPipeline(env);
       return new Response(JSON.stringify(updatedStore), { headers: CORS_HEADERS });
     }
@@ -135,7 +145,7 @@ export default {
     let store = await loadStore(env);
 
     if (!store.lastUpdated || store.items.length === 0) {
-      store = await runHourlyPipeline(env);
+      return new Response(JSON.stringify({ status: "empty", message: "Feed is empty, please trigger /refresh" }), { status: 202, headers: CORS_HEADERS });
     } else {
       const now = Date.now();
       store.items = cleanStoreItems(store.items, now);

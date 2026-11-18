@@ -222,7 +222,7 @@
     - При упоре в лимиты Gemini допускается выделение сравнения в отдельный воркер; контракт API сохраняется.
     - `node scripts/verify.mjs` проходит.
 
-## [ ] T15 · Защитить POST /refresh и GET
+## [x] T15 · Защитить POST /refresh и GET
 - area: backend-security
 - priority: high
 - files: worker.js, wrangler.toml
@@ -236,6 +236,7 @@
     - Токен не логируется; сравнение timing-safe.
     - `node scripts/verify.mjs` проходит.
 
+- done: 2026-11-18T23:38:33.483Z
 ## [ ] T16 · Таймаут Gemini через AbortController
 - area: backend
 - priority: high
