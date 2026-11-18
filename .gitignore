@@ -1,0 +1,25 @@
+# dependencies (the project is intentionally dependency-free)
+node_modules/
+
+# Cloudflare / Wrangler
+.wrangler/
+.dev.vars
+.dev.vars.*
+
+# secrets
+.env
+.env.*
+!.env.example
+
+# FA runtime artifacts
+fa/logs/
+fa/state/
+fa/tmp/
+fa/eval/
+FA_STOP
+
+# local tooling
+*.log
+.DS_Store
+coverage/
+dist/

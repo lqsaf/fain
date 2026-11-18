@@ -1,12 +1,57 @@
 {
   "$schema": "https://opencode.ai/config.json",
+
+  // FA работает без человека: контекст сжимается, вывод инструментов ограничен.
+  "compaction": {
+    "auto": true
+  },
+  "tool_output": {
+    "max_lines": 1200,
+    "max_bytes": 40000
+  },
+  "watcher": {
+    "ignore": ["fa/logs/**", "fa/state/**", "fa/eval/**", "node_modules/**", ".wrangler/**"]
+  },
+
+  // Базовые правила для человека. Агент fa добавляет свои запреты в .opencode/agents/fa.md.
   "permissions": [
-    { "action": "shell", "resource": "git push *", "effect": "deny" },
-    { "action": "shell", "resource": "git push", "effect": "deny" },
-    { "action": "shell", "resource": "sudo *", "effect": "deny" },
-    { "action": "shell", "resource": "rm -rf *", "effect": "deny" },
+    { "action": "*", "resource": "*", "effect": "allow" },
+
+    // Секреты не читаются и не редактируются.
     { "action": "read", "resource": "*.env", "effect": "deny" },
     { "action": "read", "resource": "*.env.*", "effect": "deny" },
-    { "action": "read", "resource": "*.env.example", "effect": "allow" }
+    { "action": "read", "resource": "*.env.example", "effect": "allow" },
+    { "action": "read", "resource": ".dev.vars*", "effect": "deny" },
+    { "action": "read", "resource": "$HOME/.ssh/*", "effect": "deny" },
+    { "action": "read", "resource": "$HOME/.aws/*", "effect": "deny" },
+    { "action": "read", "resource": "$HOME/.config/gh/*", "effect": "deny" },
+    { "action": "edit", "resource": "*.env", "effect": "deny" },
+    { "action": "edit", "resource": "*.env.*", "effect": "deny" },
+    { "action": "edit", "resource": ".dev.vars*", "effect": "deny" },
+
+    // Необратимое и разрушительное — только человек, вручную.
+    { "action": "shell", "resource": "sudo *", "effect": "deny" },
+    { "action": "shell", "resource": "su *", "effect": "deny" },
+    { "action": "shell", "resource": "rm -rf *", "effect": "deny" },
+    { "action": "shell", "resource": "rm -r *", "effect": "deny" },
+    { "action": "shell", "resource": "git push --force*", "effect": "deny" },
+    { "action": "shell", "resource": "git push -f*", "effect": "deny" },
+    { "action": "shell", "resource": "git reset --hard*", "effect": "deny" },
+    { "action": "shell", "resource": "git clean -fdx*", "effect": "deny" },
+    { "action": "shell", "resource": "wrangler deploy*", "effect": "deny" },
+    { "action": "shell", "resource": "npm publish*", "effect": "deny" },
+    { "action": "shell", "resource": "npm install *", "effect": "deny" },
+    { "action": "shell", "resource": "pnpm *", "effect": "deny" },
+    { "action": "shell", "resource": "yarn *", "effect": "deny" },
+    { "action": "shell", "resource": "bun add *", "effect": "deny" }
+  ],
+
+  // Жёсткие запреты: сохранённые approval не могут их отменить.
+  "policies": [
+    { "action": "shell", "resource": "git push --force*", "effect": "deny" },
+    { "action": "shell", "resource": "rm -rf *", "effect": "deny" },
+    { "action": "shell", "resource": "sudo *", "effect": "deny" },
+    { "action": "shell", "resource": "wrangler deploy*", "effect": "deny" },
+    { "action": "shell", "resource": "npm publish*", "effect": "deny" }
   ]
 }
