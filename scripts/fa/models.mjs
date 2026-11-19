@@ -6,14 +6,9 @@
 
 export const DEFAULT_MODELS = [
   {
-    id: "gpt-5.5",
+    id: "openai/gpt-5.5",
     label: "GPT-5.5",
     provider: "openai"
-  },
-  {
-    id: "google/gemini-3.1-flash-lite#low",
-    label: "Gemini 3.1 Flash-Lite low",
-    provider: "google"
   }
 ];
 
