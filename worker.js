@@ -243,8 +243,12 @@ ${JSON.stringify(pool.map((item, idx) => ({
   }));
 
   const step2Prompt = `Ты — строгий тематический дедупликатор.
-1. Сравни кандидатов с опубликованными. Отбрось дубли.
-2. Сравни кандидатов между собой.
+Твоя задача — объединить новости, описывающие одно и то же событие, и отбросить дублирующие пересказы.
+НЕ объединяй разные события, даже если они используют похожие слова.
+Сравнивай по:
+1. Ключевым сущностям (компании, модели, люди).
+2. Типу события (релиз, анонс, исследование).
+3. Сути сообщения (о чём конкретно новость).
 Верни JSON: {"uniqueIds": [числа id]}
 
 Уже опубликовано:
@@ -446,8 +450,8 @@ async function fetchAllRssFeeds(existingUrls, existingItems, now) {
       const normUrl = normalizeUrl(item.url);
       if (!normUrl || existingUrls.has(normUrl) || seenUrlsInBatch.has(normUrl)) continue;
       if (normUrl.includes("/business/customer-stories/")) continue;
-      const isDupInStore = existingItems.some(ex => isSimilarTitle(item.rawTitle, ex.originalTitle));
-      const isDupInBatch = allItems.some(b => isSimilarTitle(item.rawTitle, b.rawTitle));
+      const isDupInStore = existingItems.some(ex => isSimilarEvent(item.rawTitle, item.rawSnippet, ex.originalTitle, ""));
+      const isDupInBatch = allItems.some(b => isSimilarEvent(item.rawTitle, item.rawSnippet, b.rawTitle, b.rawSnippet));
       if (isDupInStore || isDupInBatch) continue;
       seenUrlsInBatch.add(normUrl);
       allItems.push(item);
@@ -502,7 +506,7 @@ function cleanStoreItems(items, now) {
 
   for (const item of filtered) {
     // Deduplication
-    if (result.some(prev => isSimilarTitle(item.originalTitle, prev.originalTitle))) continue;
+    if (result.some(prev => isSimilarEvent(item.originalTitle, "", prev.originalTitle, ""))) continue;
 
     // Daily limit (UTC)
     const dateStr = item.publishedAt.split('T')[0];
@@ -526,14 +530,32 @@ function tokenizeTitle(str) {
   return stripPublisherSuffix(str).toLowerCase().replace(/[^a-z0-9\s]/gi, " ").split(/\s+/).filter(w => w.length > 2 && !stopWords.has(w));
 }
 
-function isSimilarTitle(titleA, titleB) {
-  const tokensA = tokenizeTitle(titleA);
-  const tokensB = tokenizeTitle(titleB);
-  if (tokensA.length < 3 || tokensB.length < 3) return false;
-  const setB = new Set(tokensB);
-  let matches = 0;
-  for (const t of tokensA) if (setB.has(t)) matches++;
-  return (matches / Math.min(tokensA.length, tokensB.length)) >= 0.5;
+function isSimilarEvent(aTitle, aSnippet, bTitle, bSnippet) {
+  // Нормализация текста: объединяем заголовок и сниппет
+  const tokenize = (title, snippet) => {
+    const text = (title + " " + (snippet || "")).toLowerCase();
+    const stopWords = new Set(["the", "and", "for", "with", "from", "that", "this", "its", "new", "now", "how", "why", "what", "launches", "announces", "introduces", "releases", "says", "after", "over", "into", "more", "about", "can", "will", "just"]);
+    // Выделяем слова, исключая спецсимволы
+    return text.replace(/[^a-z0-9\s]/gi, " ").split(/\s+/).filter(w => w.length > 3 && !stopWords.has(w));
+  };
+
+  const tokensA = tokenize(aTitle, aSnippet);
+  const tokensB = tokenize(bTitle, bSnippet);
+  
+  if (tokensA.length < 2 || tokensB.length < 2) return false;
+
+  const setA = new Set(tokensA);
+  const intersection = tokensB.filter(t => setA.has(t));
+  
+  // Коэффициент Жаккара или просто доля совпадений
+  const similarity = intersection.length / Math.max(tokensA.length, tokensB.length);
+  const isSimilar = similarity >= 0.4;
+  
+  if (isSimilar) {
+    console.log(`[Deduplication] Similar event detected: "${aTitle}" vs "${bTitle}" (similarity: ${similarity.toFixed(2)})`);
+  }
+
+  return isSimilar;
 }
 
 function extractTag(xmlBlock, tagName) {

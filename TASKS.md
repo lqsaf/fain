@@ -209,7 +209,7 @@
     - `node scripts/verify.mjs` проходит.
 
 - done: 2026-11-18T23:36:41.201Z
-## [ ] T13 · Улучшить сравнение новостей на уникальность
+## [x] T13 · Улучшить сравнение новостей на уникальность
 - area: backend
 - priority: normal
 - files: worker.js, wrangler.toml
@@ -224,6 +224,7 @@
     - При упоре в лимиты Gemini допускается выделение сравнения в отдельный воркер; контракт API сохраняется.
     - `node scripts/verify.mjs` проходит.
 
+- done: 2026-11-19T01:54:07.115Z
 ## [x] T15 · Защитить POST /refresh и GET
 - area: backend-security
 - priority: high
