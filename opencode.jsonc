@@ -18,6 +18,26 @@
     "todo": true
   },
 
+  // Прокси-шлюз XEROSHARC (OpenAI-совместимый). Ключ валиден ТОЛЬКО на этом baseURL,
+  // поэтому официальные провайдеры anthropic/openai с ним не работают.
+  // Ключ подставляется из env (GitHub Secret XEROSHARC_API_KEY), в файле его нет.
+  // ID моделей должны один-в-один совпадать с GET https://xerosharc.site/v1/models.
+  "provider": {
+    "xerosharc": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "XEROSHARC gateway",
+      "options": {
+        "baseURL": "https://xerosharc.site/v1",
+        "apiKey": "{env:XEROSHARC_API_KEY}"
+      },
+      "models": {
+        "claude-haiku-5-5": { "name": "Claude Haiku 5.5 (XEROSHARC)" },
+        "claude-sonnet-5-5": { "name": "Claude Sonnet 5.5 (XEROSHARC)" },
+        "gpt-5.5": { "name": "GPT-5.5 (XEROSHARC)" }
+      }
+    }
+  },
+
   // Базовые правила для человека. Агент fa добавляет свои запреты в .opencode/agents/fa.md.
   "permissions": [
     { "action": "*", "resource": "*", "effect": "allow" },
