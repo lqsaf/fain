@@ -62,7 +62,7 @@ FA task queue
   `node scripts/verify.mjs` проходит.
 - done: 2026-11-18T19:12:21.964Z
 
-## [x] T04 · Настройки 2.0: аккордеон и inline-дропдауны
+## [ ] T04 · Настройки 2.0: аккордеон и inline-дропдауны
 - area: frontend
 - priority: high
 - files: settings.html, js/settings.js, js/ui.js, js/data.js, css/styles.css
@@ -83,7 +83,6 @@ FA task queue
   Не регрессировать T03: нет вспышки темы при reload, топ-панель прозрачная, inline-скрипт в `<head>` сохранён.
   `node scripts/verify.mjs` проходит.
 
-- done: 2026-11-19T19:01:21.320Z
 ## [ ] T05 · Масштаб интерфейса
 - area: frontend
 - priority: normal
