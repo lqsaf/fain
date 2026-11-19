@@ -268,7 +268,7 @@
     - `node scripts/verify.mjs` проходит.
 
 - done: 2026-11-18T23:39:15.303Z
-## [ ] T18 · Статический feed.json и GitHub Actions
+## [!] T18 · Статический feed.json и GitHub Actions
 - area: delivery
 - priority: high
 - files: js/data.js, .github/workflows/feed-sync.yml
@@ -284,6 +284,7 @@
     - Сценарий FA-харнеса отдельный и не пересекается с feed-sync.
     - `node scripts/verify.mjs` проходит.
 
+- blocked: 2026-11-19T01:48:38.796Z · review: .yml`. The task acceptance criteria explicitly require this workflow file to fetch the feed from the worker and commit `feed.json`/`feed.<lang>.json`. It is currently not present in the repository, and only `js/data.js` has been modified. 2. **Logic check**: The implementation in `js/data.js` correctly implements the fallback strategy: static JSON -> worker -> cache. This part of the acceptance criteria is met. Since the workflow file is entirely missing, the task is incomplete. VERDICT:
 ## [x] T19 · Грамотная харнес-разработка (FA)
 - area: harness
 - priority: high
