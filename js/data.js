@@ -55,6 +55,7 @@ export const I18N = {
     allRead: "все новости прочитаны",
     emptyFeed: "нет свежих новостей",
     updated: "обновлено:",
+    support: "бесплатно помочь разработке",
     time: {
       justNow: "только что",
       minutes: ["минута назад", "минуты назад", "минут назад"],
@@ -114,6 +115,7 @@ export const I18N = {
     allRead: "all news read",
     emptyFeed: "no recent news",
     updated: "updated:",
+    support: "support development for free",
     time: {
       justNow: "just now",
       minutes: "minutes ago",
@@ -173,6 +175,7 @@ export const I18N = {
     allRead: "所有资讯已读",
     emptyFeed: "暂无最新资讯",
     updated: "更新于:",
+    support: "免费帮助开发",
     time: {
       justNow: "刚刚",
       minutes: "分钟前",

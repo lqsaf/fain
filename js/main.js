@@ -29,6 +29,11 @@ function applyStaticTranslations() {
   if (updatedLabel) {
     updatedLabel.textContent = dict.updated;
   }
+
+  const supportLink = document.getElementById("support-link");
+  if (supportLink) {
+    supportLink.textContent = dict.support;
+  }
 }
 
 async function initNewsFeed() {

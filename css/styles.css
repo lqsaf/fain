@@ -547,6 +547,18 @@ select:focus {
   transform: translateY(-1px);
 }
 
+.support-link {
+  color: var(--text-dim);
+  font-size: 0.82rem;
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.support-link:hover {
+  color: var(--text-main);
+  text-decoration: underline;
+}
+
 .updated-line {
   font-size: 0.75rem;
   color: var(--text-dim);
