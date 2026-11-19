@@ -64,6 +64,7 @@ export const I18N = {
     aiAnalysis: "// ии-анализ",
     analysisUnavailable: "Анализ недоступен.",
     clickToMarkRead: "Нажмите, чтобы отметить прочитанным и скрыть",
+    markRead: "✓ прочитано",
     source: "источник",
     buckets: {
       today: "сегодня",
@@ -122,6 +123,7 @@ export const I18N = {
     aiAnalysis: "// ai-analysis",
     analysisUnavailable: "Analysis unavailable.",
     clickToMarkRead: "Click to mark as read and dismiss",
+    markRead: "✓ read",
     source: "source",
     buckets: {
       today: "today",
@@ -180,6 +182,7 @@ export const I18N = {
     aiAnalysis: "// ai 深度分析",
     analysisUnavailable: "暂无分析。",
     clickToMarkRead: "点击标记为已读并隐藏",
+    markRead: "✓ 已读",
     source: "来源",
     buckets: {
       today: "今天",

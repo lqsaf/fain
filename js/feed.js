@@ -185,16 +185,19 @@ function createNewsCard(item, dict, isAnalysisOpen = false) {
   // 3. Описание (при клике — новость считается прочитанной и удаляется)
   const descEl = document.createElement("div");
   descEl.className = "news-description";
-  descEl.title = dict.clickToMarkRead;
   descEl.textContent = item.summary;
-
-  descEl.addEventListener("click", () => {
-    markAsReadAndRemove(item.id, article);
-  });
 
   // 4. Ссылка «источник» справа снизу
   const metaRow = document.createElement("div");
   metaRow.className = "news-meta";
+
+  const markReadBtn = document.createElement("button");
+  markReadBtn.className = "mark-as-read-btn";
+  markReadBtn.textContent = dict.markRead;
+  markReadBtn.setAttribute("aria-label", dict.clickToMarkRead);
+  markReadBtn.addEventListener("click", () => {
+    markAsReadAndRemove(item.id, article);
+  });
 
   const sourceLink = document.createElement("a");
   sourceLink.className = "news-source";
@@ -203,6 +206,7 @@ function createNewsCard(item, dict, isAnalysisOpen = false) {
   sourceLink.rel = "noopener noreferrer";
   sourceLink.textContent = dict.source;
 
+  metaRow.appendChild(markReadBtn);
   metaRow.appendChild(sourceLink);
 
   article.appendChild(titleLink);
