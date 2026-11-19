@@ -80,7 +80,40 @@ jobs:
           set -euo pipefail
           npm install -g "@opencode/cli@${{ vars.OPENCODE_VERSION || 'latest' }}"
           opencode --version
-
+      
+      
+      - name: Provider probe (temporary debug)
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          set -euo pipefail
+          node -e '
+            const c = require("node:crypto");
+            for (const n of ["ANTHROPIC_API_KEY", "GEMINI_API_KEY"]) {
+              const v = process.env[n] || "";
+              const t = v.trim();
+              console.log(n, JSON.stringify({
+                len: v.length, trimLen: t.length,
+                dirty: v !== t,
+                quoted: /^["\x27]|["\x27]$/.test(v),
+                prefix: t.slice(0, 8),
+                sha256_12: c.createHash("sha256").update(t).digest("hex").slice(0, 12)
+              }));
+            }
+          '
+          echo "--- anthropic ---"
+          curl -sS -o /tmp/a.json -w 'HTTP %{http_code}\n' \
+            https://api.anthropic.com/v1/models \
+            -H "x-api-key: $ANTHROPIC_API_KEY" \
+            -H "anthropic-version: 2023-06-01" || true
+          head -c 400 /tmp/a.json; echo
+          echo "--- gemini ---"
+          curl -sS -o /tmp/g.json -w 'HTTP %{http_code}\n' \
+            "https://generativelanguage.googleapis.com/v1beta/models?key=$GEMINI_API_KEY" || true
+          head -c 400 /tmp/g.json; echo
+          
       - name: Run FA
         if: steps.gate.outputs.enabled == 'true'
         env:
