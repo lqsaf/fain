@@ -82,7 +82,7 @@
     - `node scripts/verify.mjs` проходит.
 
 - done: 2026-11-18T20:40:43.306Z
-## [ ] T05 · Масштаб интерфейса
+## [x] T05 · Масштаб интерфейса
 - area: frontend
 - priority: normal
 - files: js/data.js, js/settings.js, js/ui.js, settings.html, css/styles.css
@@ -97,6 +97,7 @@
     - Выбор сохраняется, переживает reload и не ломает мобильную вёрстку.
     - `node scripts/verify.mjs` проходит.
 
+- done: 2026-11-19T01:52:04.799Z
 ## [ ] T06 · Версия приложения внизу настроек
 - area: frontend
 - priority: low

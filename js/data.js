@@ -6,6 +6,7 @@ export const STORAGE_KEYS = {
   LAST_UPDATED_BASE: "fain_last_updated_v1",
   LANG: "fain_lang_v1",
   THEME: "fain_theme_v1",
+  SCALE: "fain_scale_v1",
   ASCII: "fain_ascii_v1",
   CUSTOM_CSS: "fain_custom_css_v1"
 };
@@ -84,6 +85,7 @@ export const I18N = {
     settings: {
       langLabel: "// язык",
       themeLabel: "// тема оформления",
+      scaleLabel: "// масштаб интерфейса",
       interfaceSection: "интерфейс",
       languageSection: "язык",
       otherSection: "прочее",
@@ -144,6 +146,7 @@ export const I18N = {
     settings: {
       langLabel: "// language",
       themeLabel: "// color theme",
+      scaleLabel: "// interface scale",
       interfaceSection: "interface",
       languageSection: "language",
       otherSection: "other",
@@ -204,6 +207,7 @@ export const I18N = {
     settings: {
       langLabel: "// 语言 / language",
       themeLabel: "// 界面主题",
+      scaleLabel: "// 界面缩放",
       interfaceSection: "界面",
       languageSection: "语言",
       otherSection: "其他",
@@ -255,11 +259,13 @@ export function t() {
 
 export function getUserPreferences() {
   let theme = "dark";
+  let scale = "100%";
   let ascii = "on";
   let customCss = "";
 
   try {
     theme = localStorage.getItem(STORAGE_KEYS.THEME) || "dark";
+    scale = localStorage.getItem(STORAGE_KEYS.SCALE) || "100%";
     ascii = localStorage.getItem(STORAGE_KEYS.ASCII) || "on";
     customCss = localStorage.getItem(STORAGE_KEYS.CUSTOM_CSS) || "";
   } catch {}
@@ -267,6 +273,7 @@ export function getUserPreferences() {
   return {
     lang: getUserLang(),
     theme,
+    scale,
     ascii,
     customCss
   };

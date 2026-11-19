@@ -43,6 +43,22 @@ function renderSettingsPage() {
   );
   interfaceSection.appendChild(themeSelect);
 
+  // Scale
+  const scaleSelect = createSelect(
+    dict.settings.scaleLabel,
+    ["90%", "100%", "110%", "120%"],
+    val => val,
+    prefs.scale,
+    val => {
+      try {
+        localStorage.setItem(STORAGE_KEYS.SCALE, val);
+      } catch {}
+      applyUserPreferences();
+      renderSettingsPage();
+    }
+  );
+  interfaceSection.appendChild(scaleSelect);
+
   // ASCII
   const asciiSelect = createSelect(
     dict.settings.asciiLabel,

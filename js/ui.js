@@ -4,10 +4,11 @@ const CUSTOM_STYLE_ID = "fain-custom-css";
 
 // Применяем тему, состояние ASCII-волн и пользовательский CSS из localStorage
 export function applyUserPreferences() {
-  const { lang, theme, ascii, customCss } = getUserPreferences();
+  const { lang, theme, scale, ascii, customCss } = getUserPreferences();
 
   document.documentElement.lang = lang;
   document.documentElement.setAttribute("data-theme", theme);
+  document.documentElement.style.fontSize = scale === "100%" ? "" : `${(parseInt(scale) / 100) * 15}px`;
 
   const leftEl = document.getElementById("ascii-left");
   const rightEl = document.getElementById("ascii-right");

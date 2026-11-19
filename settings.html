@@ -9,6 +9,10 @@
       try {
         var theme = localStorage.getItem('fain_theme_v1') || 'dark';
         document.documentElement.setAttribute('data-theme', theme);
+        var scale = localStorage.getItem('fain_scale_v1');
+        if (scale && scale !== '100%') {
+          document.documentElement.style.fontSize = (parseInt(scale) / 100) * 15 + 'px';
+        }
         var css = localStorage.getItem('fain_custom_css_v1');
         if (css) {
           var style = document.createElement('style');
