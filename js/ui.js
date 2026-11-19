@@ -1,4 +1,4 @@
-import { getUserPreferences, STORAGE_KEYS } from "./data.js";
+import { getUserPreferences } from "./data.js";
 
 const CUSTOM_STYLE_ID = "fain-custom-css";
 
@@ -8,14 +8,6 @@ export function applyUserPreferences() {
 
   document.documentElement.lang = lang;
   document.documentElement.setAttribute("data-theme", theme);
-  let font = "mono";
-  let scale = "normal";
-  try {
-    font = localStorage.getItem(STORAGE_KEYS.FONT) || font;
-    scale = localStorage.getItem(STORAGE_KEYS.SCALE) || scale;
-  } catch {}
-  document.documentElement.dataset.font = font;
-  document.documentElement.dataset.scale = scale;
 
   const leftEl = document.getElementById("ascii-left");
   const rightEl = document.getElementById("ascii-right");

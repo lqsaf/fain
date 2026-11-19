@@ -7,10 +7,7 @@ export const STORAGE_KEYS = {
   LANG: "fain_lang_v1",
   THEME: "fain_theme_v1",
   ASCII: "fain_ascii_v1",
-  CUSTOM_CSS: "fain_custom_css_v1",
-  FONT: "fain_font_v1",
-  SCALE: "fain_scale_v1",
-  SETTINGS_SECTIONS: "fain_settings_sections_v1"
+  CUSTOM_CSS: "fain_custom_css_v1"
 };
 
 export function getCacheKey(base, lang) {
@@ -97,10 +94,6 @@ export const I18N = {
       asciiLabel: "// боковые ascii-волны (пк)",
       asciiOn: "вкл",
       asciiOff: "выкл",
-      fontLabel: "// шрифт",
-      scaleLabel: "// масштаб",
-      fonts: { mono: "терминальный", system: "системный" },
-      scales: { small: "90%", normal: "100%", large: "110%" },
       customCssLabel: "// пользовательский css (в кэше)",
       customCssHint: "Стили применяются поверх текущей темы и сохраняются локально в браузере.",
       customCssPlaceholder: ":root {\n  --bg: #050505;\n  --text-main: #e0e0e0;\n}",
@@ -159,10 +152,6 @@ export const I18N = {
       asciiLabel: "// side ascii waves (desktop)",
       asciiOn: "on",
       asciiOff: "off",
-      fontLabel: "// font",
-      scaleLabel: "// scale",
-      fonts: { mono: "terminal", system: "system" },
-      scales: { small: "90%", normal: "100%", large: "110%" },
       customCssLabel: "// custom css (cached)",
       customCssHint: "Styles override the active theme and persist in local storage.",
       customCssPlaceholder: ":root {\n  --bg: #050505;\n  --text-main: #e0e0e0;\n}",
@@ -221,10 +210,6 @@ export const I18N = {
       asciiLabel: "// 侧边 ascii 波形 (桌面端)",
       asciiOn: "开启",
       asciiOff: "关闭",
-      fontLabel: "// 字体",
-      scaleLabel: "// 缩放",
-      fonts: { mono: "终端字体", system: "系统字体" },
-      scales: { small: "90%", normal: "100%", large: "110%" },
       customCssLabel: "// 自定义 css (本地缓存)",
       customCssHint: "自定义样式将覆盖当前主题并保存在本地浏览器缓存中。",
       customCssPlaceholder: ":root {\n  --bg: #050505;\n  --text-main: #e0e0e0;\n}",
