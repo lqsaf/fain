@@ -6,9 +6,14 @@
 
 export const DEFAULT_MODELS = [
   {
-    id: "openai/gpt-5.5",
-    label: "GPT-5.5",
-    provider: "openai"
+    id: "xerosharc/claude-sonnet-5-5",
+    label: "Claude Sonnet 5.5 (XEROSHARC)",
+    provider: "xerosharc"
+  },
+  {
+    id: "xerosharc/gpt-5.5",
+    label: "GPT-5.5 (XEROSHARC)",
+    provider: "xerosharc"
   }
 ];
 
