@@ -424,6 +424,46 @@ html, body {
 }
 
 /* Страница настроек */
+.settings-accordion {
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.settings-accordion-trigger {
+  width: 100%;
+  padding: 18px 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-main);
+  text-align: left;
+  font: inherit;
+  font-size: 0.9rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.settings-accordion-trigger::after { content: " [ + ]"; color: var(--text-dim); }
+.settings-accordion-trigger[aria-expanded="true"]::after { content: " [ − ]"; }
+.settings-accordion-panel { overflow: hidden; max-height: 1000px; transition: max-height 0.25s ease; }
+.settings-accordion-panel[hidden] { display: none; }
+.settings-control { padding: 10px 0; }
+.term-select-trigger {
+  display: block; width: 100%; text-align: left; background: var(--analysis-bg); color: var(--text-main);
+  border: 1px solid var(--border-subtle); padding: 9px 12px; font: inherit; cursor: pointer;
+}
+.term-select-trigger::after { content: " ▾"; float: right; }
+.term-select-list { max-height: min(240px, 40vh); overflow-y: auto; border: 1px solid var(--border-subtle); border-top: 0; background: var(--analysis-bg); }
+.term-select-list[hidden] { display: none; }
+.term-select-option { display: block; width: 100%; padding: 9px 12px; border: 0; background: transparent; color: var(--text-muted); text-align: left; font: inherit; cursor: pointer; }
+.term-select-option[aria-selected="true"] { color: var(--text-main); background: var(--bg); }
+.term-select-option:focus-visible, .term-select-trigger:focus-visible, .settings-accordion-trigger:focus-visible { outline: 1px dashed var(--text-main); outline-offset: 3px; }
+html[data-font="system"] body { font-family: system-ui, sans-serif; }
+html[data-scale="small"] { font-size: 13.5px; }
+html[data-scale="normal"] { font-size: 15px; }
+html[data-scale="large"] { font-size: 16.5px; }
+@media (max-width: 560px) { .term-select-list { max-height: min(200px, 32vh); } }
+@media (prefers-reduced-motion: reduce) { .settings-accordion-panel { transition: none; } }
+
 .settings-block {
   padding: 22px 0;
   border-bottom: 1px solid var(--border-subtle);
