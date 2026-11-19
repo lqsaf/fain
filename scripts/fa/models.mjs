@@ -6,9 +6,9 @@
 
 export const DEFAULT_MODELS = [
   {
-    id: "anthropic/claude-haiku-5-5",
-    label: "Claude Haiku 5.5",
-    provider: "anthropic"
+    id: "gpt-5.5",
+    label: "GPT-5.5",
+    provider: "openai"
   },
   {
     id: "google/gemini-3.1-flash-lite#low",
