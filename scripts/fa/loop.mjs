@@ -892,10 +892,15 @@ async function main() {
         message: removed.code === 0 ? `remote ${BRANCH} deleted` : `remote ${BRANCH} not deleted (${removed.stderr.slice(0, 200)})`
       });
     } else if (pr?.state === "CLOSED") {
-      state.stopReason = "PR closed";
-      state.failed = true;
-      finish();
-      return;
+      // PR закрыт без merge — работа отклонена владельцем. Начинаем заново от base,
+      // как после merge; отклонённые коммиты не переносятся, новый PR откроется после первого push.
+      log("branch.reset", { message: `PR #${pr.number} closed; reset ${BRANCH} to ${BASE_BRANCH}` });
+      git.fetchOrigin();
+      git.resetToBase(BRANCH, BASE_BRANCH);
+      const removed = git.git(["push", "origin", "--delete", BRANCH], { allowFailure: true });
+      log("branch.cleanup", {
+        message: removed.code === 0 ? `remote ${BRANCH} deleted` : `remote ${BRANCH} not deleted (${removed.stderr.slice(0, 200)})`
+      });
     }
 
     const branch = git.ensureWorkBranch(BRANCH, BASE_BRANCH);
