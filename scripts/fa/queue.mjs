@@ -210,6 +210,37 @@ export function resetStaleClaims(text) {
   return next;
 }
 
+const QUOTA_BLOCK_RE = /quota|rate[\s_-]?limit|too many requests|resource[_\s-]?exhausted|\b429\b/i;
+
+function isQuotaBlock(task) {
+  return task.status === "blocked" && QUOTA_BLOCK_RE.test(task.fields?.blocked || "");
+}
+
+/**
+ * Задача, которая станет runnable после восстановления очереди: stale claim
+ * или блок из-за временной квоты провайдера.
+ */
+export function recoverableTasks(tasks) {
+  return tasks.filter((task) => task.status === "claimed" || isQuotaBlock(task));
+}
+
+/**
+ * Квота провайдера — временная инфра-ошибка, а не свойство задачи.
+ * Такие блоки снимаются автоматически; причина остаётся в истории `recovered`.
+ */
+export function resetQuotaBlocks(text) {
+  let next = text;
+  for (const task of parseQueue(text)) {
+    if (!isQuotaBlock(task)) continue;
+    next = updateTask(next, task.id, {
+      status: "todo",
+      remove: ["blocked", "claimed"],
+      extra: [`- recovered: ${new Date().toISOString()} · quota block reset`]
+    });
+  }
+  return next;
+}
+
 export function queueStats(tasks) {
   return {
     total: tasks.length,
@@ -260,11 +291,15 @@ if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
     console.log(JSON.stringify(queueStats(tasks), null, 2));
   } else if (command === "has-work") {
     const next = selectNext(tasks);
-    if (!next) {
+    const recoverable = recoverableTasks(tasks);
+    if (next) {
+      console.log(next.id);
+    } else if (recoverable.length > 0) {
+      // Запуск нужен, чтобы снять stale claim или quota-блок.
+      console.log(`recovery: ${recoverable.map((task) => task.id).join(",")}`);
+    } else {
       console.error("no runnable tasks");
       process.exitCode = 3;
-    } else {
-      console.log(next.id);
     }
   } else {
     printList(tasks);

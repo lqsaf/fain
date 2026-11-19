@@ -10,7 +10,7 @@
 | Промпт задачи | `scripts/fa/loop.mjs` → `buildTaskPrompt` | `task-v1` |
 | Промпт reviewer | `.opencode/agents/fa-reviewer.md` | `review-v1` |
 | Контекст проекта | `AGENTS.md`, `docs/CONVENTIONS.md` | git SHA |
-| Модель | `FA_MODEL` | значение переменной |
+| Модели | `scripts/fa/models.mjs` + `FA_MODELS` | упорядоченная цепочка fallback |
 
 Версия промпта задачи печатается в `run.jsonl` и в `summary.json`. При изменении текста версия увеличивается вручную: `task-v1` → `task-v2`.
 
@@ -35,7 +35,7 @@ npm run verify
 ### Модель (уровень 2)
 
 ```bash
-npm run fa:eval -- --suite model --models opencode/deepseek-v4.1-flash-free#high,opencode/deepseek-v4.1-flash-free#max
+npm run fa:eval -- --suite model --models anthropic/claude-haiku-4-5,google/gemini-3.1-flash-lite#low
 ```
 
 Замер задаёт один и тот же детерминированный вопрос по репозиторию, требует JSON-ответ и проверяет его без модели:
@@ -53,7 +53,8 @@ npm run fa:eval -- --suite model --models opencode/deepseek-v4.1-flash-free#high
 
 | Версия | Модель | Pass | Шаги | Токены | Время |
 | --- | --- | --- | --- | --- | --- |
-| `fa-v1` / `task-v1` | `opencode/deepseek-v4.1-flash-free#high` | — | — | — | — |
+| `fa-v1` / `task-v1` | `anthropic/claude-haiku-4-5` | — | — | — | — |
+| `fa-v1` / `task-v1` | `google/gemini-3.1-flash-lite#low` | — | — | — | — |
 
 Обновлять при каждом принятом изменении промпта или модели. Значения брать из `fa/eval/<timestamp>.json`.
 

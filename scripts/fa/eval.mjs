@@ -5,8 +5,9 @@ import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { ROOT, MODEL, OPENCODE_BIN, PATHS, ensureDir, makeRunId, nowIso } from "./config.mjs";
+import { ROOT, OPENCODE_BIN, PATHS, ensureDir, makeRunId, nowIso } from "./config.mjs";
 import { analyzeEvents, parseJsonlText } from "./metrics.mjs";
+import { modelChain } from "./models.mjs";
 
 const ANSWER_PROMPT = [
   "Read js/data.js and css/styles.css in this repository. Do not edit anything.",
@@ -24,7 +25,7 @@ function parseArgs(argv) {
     else if (arg === "--timeout") out.timeoutMin = Math.max(1, Number(argv[++i]) || 10);
     else if (arg === "--help" || arg === "-h") out.help = true;
   }
-  if (out.models.length === 0) out.models = [MODEL];
+  if (out.models.length === 0) out.models = modelChain().map((model) => model.id);
   return out;
 }
 

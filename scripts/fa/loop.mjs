@@ -10,7 +10,6 @@ import {
   BASE_BRANCH,
   BRANCH,
   LIMITS,
-  MODEL,
   OPENCODE_BIN,
   PATHS,
   PROMPT_VERSION,
@@ -23,7 +22,19 @@ import {
   nowIso,
   runPaths
 } from "./config.mjs";
-import { findTask, markBlocked, markClaimed, markDone, queueStats, readQueue, resetStaleClaims, selectNext, writeQueue } from "./queue.mjs";
+import { availableModels, classifyFailure, modelChain } from "./models.mjs";
+import {
+  findTask,
+  markBlocked,
+  markClaimed,
+  markDone,
+  queueStats,
+  readQueue,
+  resetQuotaBlocks,
+  resetStaleClaims,
+  selectNext,
+  writeQueue
+} from "./queue.mjs";
 import * as git from "./git.mjs";
 import { analyzeFile, flags, parseJsonlText } from "./metrics.mjs";
 import { isAllowedVerifyCommand } from "./policy.mjs";
@@ -38,6 +49,10 @@ const state = {
   infraFailures: 0,
   tokenTotal: 0,
   tasks: [],
+  models: [],
+  modelIndex: 0,
+  activeModel: "",
+  modelFallbacks: 0,
   stopReason: "unknown",
   failed: false
 };
@@ -50,7 +65,6 @@ function parseArgs(argv) {
     preflight: false,
     noPush: false,
     forceLocal: false,
-    maxTasks: 0,
     help: false
   };
 
@@ -62,7 +76,6 @@ function parseArgs(argv) {
     else if (arg === "--preflight") options.preflight = true;
     else if (arg === "--no-push") options.noPush = true;
     else if (arg === "--force-local") options.forceLocal = true;
-    else if (arg === "--max-tasks") options.maxTasks = Math.max(0, Number(argv[++i]) || 0);
     else if (arg === "--help" || arg === "-h") options.help = true;
   }
 
@@ -97,18 +110,17 @@ function requireCleanWorktree() {
   }
 }
 
-function needsProviderKey(model) {
-  return !/^opencode\/[^#]*-free(#.*)?$/i.test(String(model || "").trim());
-}
-
 function preflight() {
   const problems = [];
   const warnings = [];
+  const chain = modelChain();
+  // В CI ключи приходят только из env; локально opencode может использовать `opencode auth`.
+  const usable = isCi() ? chain.filter((model) => model.available) : chain;
 
   const major = Number(process.versions.node.split(".")[0]);
   if (!Number.isFinite(major) || major < 22) problems.push(`Node 22+ required, got ${process.version}`);
 
-  for (const file of ["AGENTS.md", "TASKS.md", "opencode.jsonc", "package.json", "scripts/verify.mjs"]) {
+  for (const file of ["AGENTS.md", "TASKS.md", "opencode.jsonc", "package.json", "scripts/verify.mjs", "scripts/fa/models.mjs"]) {
     if (!existsSync(join(ROOT, file))) problems.push(`missing ${file}`);
   }
 
@@ -122,9 +134,14 @@ function preflight() {
   const remote = git.git(["remote", "get-url", "origin"], { allowFailure: true });
   if (remote.code !== 0) problems.push("git remote origin is missing");
 
-  if (isCi() && needsProviderKey(MODEL)) {
-    const keys = ["GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY", "OPENCODE_API_KEY"];
-    if (!keys.some((key) => process.env[key])) problems.push(`no provider key in env (${keys.join(", ")})`);
+  if (isCi() && usable.length === 0) {
+    const details = chain.map((model) => `${model.id} (${model.keyNames.join("/") || "provider auth"})`);
+    problems.push(`no provider key for any configured model: ${details.join(", ")}`);
+  } else if (isCi() && usable.length < chain.length) {
+    const missing = chain
+      .filter((model) => !model.available)
+      .map((model) => `${model.id} (${model.keyNames.join("/") || "provider auth"})`);
+    warnings.push(`model fallback is incomplete; missing key: ${missing.join(", ")}`);
   }
 
   if (!git.isClean()) warnings.push("worktree is dirty; local run will refuse without --force-local");
@@ -136,14 +153,15 @@ function preflight() {
     problems.push(`TASKS.md is not parseable: ${error.message}`);
   }
 
-  return { problems, warnings, stats, opencodeVersion: (opencode.stdout || "").trim() };
+  return { problems, warnings, stats, chain, usable, opencodeVersion: (opencode.stdout || "").trim() };
 }
 
 function printPreflight(result) {
   console.log("FA preflight");
   console.log(`  node:      ${process.version}`);
   console.log(`  opencode:  ${result.opencodeVersion || "not found"}`);
-  console.log(`  model:     ${MODEL}`);
+  console.log(`  models:    ${result.chain.map((model) => `${model.id}${model.available ? "" : " [no key]"}`).join(" -> ")}`);
+  console.log(`  active:    ${result.usable.map((model) => model.id).join(" -> ") || "none"}`);
   console.log(`  branch:    ${BRANCH} -> ${BASE_BRANCH}`);
   console.log(`  run budget: ${Math.round(LIMITS.runBudgetMs / 60_000)} min, task timeout: ${Math.round(LIMITS.taskTimeoutMs / 60_000)} min`);
   if (result.stats) {
@@ -239,11 +257,11 @@ function pushWithRetry() {
   return false;
 }
 
-function runOpencode({ agent, prompt, stdoutFile, stderrFile, timeoutMs, title }) {
+function runOpencode({ agent, model, prompt, stdoutFile, stderrFile, timeoutMs, title }) {
   return new Promise((resolve) => {
     const child = spawn(
       OPENCODE_BIN,
-      ["run", "--agent", agent, "--model", MODEL, "--format", "json", "--auto", "--title", title, prompt],
+      ["run", "--agent", agent, "--model", model, "--format", "json", "--auto", "--title", title, prompt],
       {
         cwd: ROOT,
         env: process.env,
@@ -282,6 +300,139 @@ function runOpencode({ agent, prompt, stdoutFile, stderrFile, timeoutMs, title }
       resolve({ code: code ?? 1, signal, timedOut, spawnError: null });
     });
   });
+}
+
+function extractErrorDetail(stdoutFile, stderrFile) {
+  const stdoutLines = (readFileSafe(stdoutFile) || "").split("\n").filter(Boolean);
+  let jsonError = "";
+
+  for (let i = stdoutLines.length - 1; i >= 0; i -= 1) {
+    try {
+      const event = JSON.parse(stdoutLines[i]);
+      if (event.type === "error" || event.error) {
+        jsonError = `${event.error?.type || "error"}: ${event.error?.message || JSON.stringify(event.error)}`;
+        break;
+      }
+    } catch {
+      // не JSON-строка
+    }
+  }
+
+  const errTail = (readFileSafe(stderrFile) || "").split("\n").filter(Boolean).slice(-5).join(" | ").slice(0, 500);
+  return (jsonError || errTail || stdoutLines.slice(-1)[0] || "no output").slice(0, 500);
+}
+
+/**
+ * Запускает агента по цепочке моделей. При quota/auth/unavailable переключается
+ * на следующую модель и повторяет тот же шаг, не расходуя попытку задачи.
+ */
+async function runAgentWithFallback({ agent, prompt, timeoutMs, title, fileBase, taskId, onModelRetry }) {
+  if (state.models.length === 0) {
+    return {
+      kind: "models_exhausted",
+      reason: "no model with provider key",
+      metrics: { tokenTotal: 0 },
+      model: "",
+      stdoutFile: "",
+      durationMs: 0
+    };
+  }
+
+  let totalTokens = 0;
+  let lastReason = "no model available";
+  let lastMetrics = { tokenTotal: 0 };
+
+  for (let index = state.modelIndex; index < state.models.length; index += 1) {
+    const model = state.models[index];
+    const stdoutFile = `${fileBase}-model${index + 1}.jsonl`;
+    const stderrFile = `${fileBase}-model${index + 1}.err.log`;
+    state.activeModel = model.id;
+    writeFileSync(stdoutFile, "", "utf8");
+    writeFileSync(stderrFile, "", "utf8");
+    log("model.start", { task: taskId, message: `${model.id} (${index + 1}/${state.models.length})` });
+
+    const started = Date.now();
+    const result = await runOpencode({
+      agent,
+      model: model.id,
+      prompt,
+      stdoutFile,
+      stderrFile,
+      timeoutMs,
+      title: `${title} [${model.label}]`
+    });
+    const metrics = analyzeFile(stdoutFile);
+    totalTokens += metrics.tokenTotal;
+    lastMetrics = { ...metrics, tokenTotal: totalTokens };
+    const durationMs = Date.now() - started;
+
+    if (result.spawnError) {
+      log("task.infra", { task: taskId, message: result.spawnError.message });
+      return { kind: "infra", reason: result.spawnError.message, metrics: lastMetrics, model: model.id, durationMs };
+    }
+
+    if (result.timedOut) {
+      log("task.infra", { task: taskId, message: `timeout on ${model.id}` });
+      return { kind: "infra", reason: "task timeout", metrics: lastMetrics, model: model.id, durationMs };
+    }
+
+    if (result.code !== 0) {
+      const detail = extractErrorDetail(stdoutFile, stderrFile);
+      const category = classifyFailure(detail);
+      const hasNext = index + 1 < state.models.length;
+
+      if (category !== "other" && hasNext) {
+        state.modelIndex = index + 1;
+        state.modelFallbacks += 1;
+        lastReason = detail;
+        log("model.fallback", {
+          task: taskId,
+          message: `${model.id} -> ${state.models[index + 1].id} (${category}): ${sanitize(detail).slice(0, 200)}`
+        });
+        if (onModelRetry) onModelRetry(category, detail);
+        continue;
+      }
+
+      if (category !== "other") {
+        log("model.exhausted", {
+          task: taskId,
+          message: `${model.id} (${category}): ${sanitize(detail).slice(0, 300)}`
+        });
+        return {
+          kind: "models_exhausted",
+          reason: `${model.id}: ${detail}`,
+          metrics: lastMetrics,
+          model: model.id,
+          stdoutFile,
+          durationMs
+        };
+      }
+
+      log("task.fail", { task: taskId, message: `opencode exit ${result.code}: ${detail}` });
+      return {
+        kind: "attempt",
+        reason: `opencode exit ${result.code}: ${detail}`,
+        metrics: lastMetrics,
+        model: model.id,
+        stdoutFile,
+        durationMs
+      };
+    }
+
+    state.modelIndex = index;
+    state.activeModel = model.id;
+    log("model.done", { task: taskId, message: model.id });
+    return { kind: "ok", model: model.id, metrics: lastMetrics, stdoutFile, stderrFile, durationMs };
+  }
+
+  return {
+    kind: "models_exhausted",
+    reason: lastReason,
+    metrics: lastMetrics,
+    model: state.models[state.models.length - 1]?.id || "",
+    stdoutFile: "",
+    durationMs: 0
+  };
 }
 
 function buildTaskPrompt(task, attempt) {
@@ -391,7 +542,8 @@ function recordTask(task, fields) {
     files: fields.files || [],
     tokens: fields.tokens || 0,
     durationMs: fields.durationMs || 0,
-    reason: fields.reason || ""
+    model: fields.model || "",
+    reason: sanitize(fields.reason || "")
   });
 }
 
@@ -423,65 +575,49 @@ function readQueueText() {
 
 async function attemptTask(task, attempt) {
   const started = Date.now();
-  const stdoutFile = join(run.dir, `${task.id}-attempt${attempt}.jsonl`);
-  const stderrFile = join(run.dir, `${task.id}-attempt${attempt}.err.log`);
-  writeFileSync(stdoutFile, "", "utf8");
-  writeFileSync(stderrFile, "", "utf8");
 
   // Claim живёт только в рабочем дереве: агент видит [~], а в ветку попадает итог.
   writeQueue(markClaimed(readQueueText(), task.id, { attempts: attempt }));
   log("task.start", { task: task.id, message: `attempt ${attempt}/${LIMITS.maxAttempts}` });
 
-  const result = await runOpencode({
+  const execution = await runAgentWithFallback({
     agent: AGENT,
     prompt: buildTaskPrompt(task, attempt),
-    stdoutFile,
-    stderrFile,
     timeoutMs: LIMITS.taskTimeoutMs,
-    title: `FA ${task.id} attempt ${attempt}`
+    title: `FA ${task.id} attempt ${attempt}`,
+    fileBase: join(run.dir, `${task.id}-attempt${attempt}`),
+    taskId: task.id,
+    onModelRetry: () => {
+      // Частичные правки неудавшейся модели не должны попасть в следующую попытку.
+      git.revertWorktree();
+      writeQueue(markClaimed(readQueueText(), task.id, { attempts: attempt }));
+    }
   });
 
-  const metrics = analyzeFile(stdoutFile);
+  const metrics = execution.metrics;
   state.tokenTotal += metrics.tokenTotal;
 
-  if (result.spawnError) {
-    log("task.infra", { task: task.id, message: result.spawnError.message });
-    return { kind: "infra", reason: result.spawnError.message, metrics, durationMs: Date.now() - started };
+  if (execution.kind === "infra") {
+    return { kind: "infra", reason: execution.reason, metrics, model: execution.model, durationMs: execution.durationMs };
   }
 
-  if (result.timedOut) {
-    log("task.infra", { task: task.id, message: "timeout" });
-    return { kind: "infra", reason: "task timeout", metrics, durationMs: Date.now() - started };
+  if (execution.kind === "models_exhausted") {
+    return {
+      kind: "models_exhausted",
+      reason: execution.reason,
+      metrics,
+      model: execution.model,
+      durationMs: Date.now() - started
+    };
   }
 
-  if (result.code !== 0) {
-    const stdoutLines = (readFileSafe(stdoutFile) || "").split("\n").filter(Boolean);
-    let jsonError = "";
-    for (let i = stdoutLines.length - 1; i >= 0; i -= 1) {
-      try {
-        const ev = JSON.parse(stdoutLines[i]);
-        if (ev.type === "error" || ev.error) {
-          jsonError = `${ev.error?.type || "error"}: ${ev.error?.message || JSON.stringify(ev.error)}`;
-          break;
-        }
-      } catch {
-        // не JSON-строка
-      }
-    }
-    const errTail = (readFileSafe(stderrFile) || "").split("\n").filter(Boolean).slice(-5).join(" | ").slice(0, 500);
-    const detail = (jsonError || errTail || stdoutLines.slice(-1)[0] || "no output").slice(0, 500);
-
-    if (/provider\.quota|provider\.auth|exceeded your current quota|free usage limit|rate limit|too many requests|quota|\b429\b|\b401\b|\b403\b/i.test(detail)) {
-      log("task.infra", { task: task.id, message: `opencode exit ${result.code}: ${detail}` });
-      return { kind: "infra", reason: detail, metrics, durationMs: Date.now() - started };
-    }
-
-    log("task.fail", { task: task.id, message: `opencode exit ${result.code}: ${detail}` });
+  if (execution.kind === "attempt") {
     return {
       kind: "attempt",
-      reason: `opencode exit ${result.code}: ${detail}`,
+      reason: execution.reason,
       metrics,
-      durationMs: Date.now() - started
+      model: execution.model,
+      durationMs: execution.durationMs
     };
   }
 
@@ -491,42 +627,76 @@ async function attemptTask(task, attempt) {
   const changed = git.changedFiles();
   if (changed.length === 0) {
     log("task.fail", { task: task.id, message: "no changes (state hole)" });
-    return { kind: "attempt", reason: "no changes after DONE", metrics, durationMs: Date.now() - started };
+    return { kind: "attempt", reason: "no changes after DONE", metrics, model: execution.model, durationMs: Date.now() - started };
   }
 
   const verify = runVerify(task.id);
   if (!verify.ok) {
     log("task.fail", { task: task.id, message: `verify: ${verify.errors.join("; ").slice(0, 500)}` });
-    return { kind: "attempt", reason: `verify failed: ${verify.errors.join("; ")}`, metrics, changed, durationMs: Date.now() - started };
+    return {
+      kind: "attempt",
+      reason: `verify failed: ${verify.errors.join("; ")}`,
+      metrics,
+      model: execution.model,
+      changed,
+      durationMs: Date.now() - started
+    };
   }
 
   const taskVerify = runTaskVerify(task);
   if (!taskVerify.ok) {
     log("task.fail", { task: task.id, message: "task verify failed" });
-    return { kind: "attempt", reason: `task verify failed: ${taskVerify.detail}`, metrics, changed, durationMs: Date.now() - started };
+    return {
+      kind: "attempt",
+      reason: `task verify failed: ${taskVerify.detail}`,
+      metrics,
+      model: execution.model,
+      changed,
+      durationMs: Date.now() - started
+    };
   }
 
   if (String(task.review).toLowerCase() === "required") {
-    const reviewFile = join(run.dir, `${task.id}-review.jsonl`);
-    const reviewErr = join(run.dir, `${task.id}-review.err.log`);
-    const review = await runOpencode({
+    const review = await runAgentWithFallback({
       agent: REVIEWER_AGENT,
       prompt: reviewPrompt(task),
-      stdoutFile: reviewFile,
-      stderrFile: reviewErr,
       timeoutMs: LIMITS.reviewTimeoutMs,
-      title: `FA review ${task.id}`
+      title: `FA review ${task.id}`,
+      fileBase: join(run.dir, `${task.id}-review`),
+      taskId: task.id,
+      onModelRetry: null
     });
-    const verdict = extractText(reviewFile);
-    if (review.code !== 0 || review.timedOut || !/VERDICT:\s*PASS/i.test(verdict)) {
-      log("task.fail", { task: task.id, message: "review did not pass" });
-      return { kind: "attempt", reason: `review: ${verdict.slice(-500) || "no verdict"}`, metrics, changed, durationMs: Date.now() - started };
+
+    state.tokenTotal += review.metrics.tokenTotal;
+    const verdict = extractText(review.stdoutFile);
+
+    if (review.kind === "models_exhausted" || review.kind === "infra") {
+      return {
+        kind: review.kind,
+        reason: `review: ${review.reason}`,
+        metrics,
+        model: review.model,
+        changed,
+        durationMs: Date.now() - started
+      };
     }
-    log("task.review", { task: task.id, message: "PASS" });
+
+    if (review.kind !== "ok" || !/VERDICT:\s*PASS/i.test(verdict)) {
+      log("task.fail", { task: task.id, message: "review did not pass" });
+      return {
+        kind: "attempt",
+        reason: `review: ${verdict.slice(-500) || review.reason || "no verdict"}`,
+        metrics,
+        model: execution.model,
+        changed,
+        durationMs: Date.now() - started
+      };
+    }
+    log("task.review", { task: task.id, message: `PASS (${review.model})` });
   }
 
   const signal = flags(metrics, { changedFiles: changed.length, tokenBudget: LIMITS.tokenBudget });
-  return { kind: "ok", metrics, changed, flags: signal, durationMs: Date.now() - started };
+  return { kind: "ok", metrics, changed, flags: signal, model: execution.model, durationMs: Date.now() - started };
 }
 
 function readFileSafe(file) {
@@ -557,7 +727,8 @@ async function runTask(task) {
       const message = `fa(${task.area || "task"}): ${task.title} (${task.id})`;
       const sha = git.commitAll(message, [
         `FA-Task: ${task.id}`,
-        `Model: ${MODEL}`,
+        `Model: ${outcome.model || state.activeModel || "unknown"}`,
+        `Model-Fallbacks: ${state.modelFallbacks}`,
         `Prompt: ${PROMPT_VERSION}`,
         `Attempts: ${attempt}`,
         `Files: ${outcome.changed.join(", ")}`
@@ -577,24 +748,45 @@ async function runTask(task) {
         result: "done",
         files: outcome.changed,
         tokens: outcome.metrics.tokenTotal,
-        durationMs: outcome.durationMs
+        durationMs: outcome.durationMs,
+        model: outcome.model || state.activeModel
       });
       log("task.done", {
         task: task.id,
-        message: `${sha.slice(0, 8)} ${outcome.changed.length} files, ${outcome.metrics.tokenTotal} tokens${outcome.flags.length ? `, flags: ${outcome.flags.join(",")}` : ""}`
+        message: `${sha.slice(0, 8)} ${outcome.changed.length} files, ${outcome.metrics.tokenTotal} tokens, model=${outcome.model || state.activeModel}${outcome.flags.length ? `, flags: ${outcome.flags.join(",")}` : ""}`
       });
 
       if (pushed) ensurePr();
       return { result: "done", attempts: attempt };
     }
 
+    if (outcome.kind === "models_exhausted") {
+      git.revertWorktree();
+      const quota = /quota|rate|limit|429/i.test(outcome.reason || "");
+      const result = quota ? "quota" : "unavailable";
+      state.stopReason = quota ? "provider quota" : "provider unavailable";
+      log("task.models_exhausted", {
+        task: task.id,
+        message: `${state.stopReason}: ${sanitize(outcome.reason).slice(0, 300)}`
+      });
+      recordTask(task, {
+        attempts: attempt,
+        result,
+        tokens: outcome.metrics.tokenTotal,
+        durationMs: outcome.durationMs,
+        model: outcome.model,
+        reason: outcome.reason
+      });
+      // Задача остаётся [ ], следующий запуск watchdog попробует её снова.
+      return { result, attempts: attempt };
+    }
+
     if (outcome.kind === "infra") {
       git.revertWorktree();
       state.infraFailures += 1;
-      const isQuota = /quota|rate|limit|429/i.test(outcome.reason || "");
       if (state.infraFailures >= LIMITS.maxInfraFailures || attempt >= attemptsLimit) {
         state.failed = true;
-        state.stopReason = isQuota ? "provider quota" : "infrastructure failures";
+        state.stopReason = "infrastructure failures";
         if (state.infraFailures >= LIMITS.maxInfraFailures) {
           createIssue(
             "FA infrastructure failure",
@@ -603,8 +795,7 @@ async function runTask(task) {
         }
         return { result: "infra", attempts: attempt };
       }
-      log("task.retry", { task: task.id, message: `infra, attempt ${attempt}${isQuota ? " (waiting 65s for quota window)" : ""}` });
-      if (isQuota) await new Promise((resolve) => setTimeout(resolve, 65_000));
+      log("task.retry", { task: task.id, message: `infra, attempt ${attempt}` });
       continue;
     }
 
@@ -627,7 +818,7 @@ async function main() {
   cli = options;
 
   if (options.help) {
-    console.log("usage: node scripts/fa/loop.mjs [--once] [--task Txx] [--dry-run] [--preflight] [--no-push] [--force-local] [--max-tasks N]");
+    console.log("usage: node scripts/fa/loop.mjs [--once] [--task Txx] [--dry-run] [--preflight] [--no-push] [--force-local]");
     return;
   }
 
@@ -653,7 +844,10 @@ async function main() {
 
   const runId = makeRunId();
   run = runPaths(runId);
-  log("run.start", { message: `${runId} model=${MODEL} branch=${BRANCH}` });
+  state.models = isCi() ? availableModels() : modelChain();
+  log("run.start", {
+    message: `${runId} models=${state.models.map((model) => model.id).join(" -> ") || "none"} branch=${BRANCH}`
+  });
 
   const stop = killSwitch();
   if (stop) {
@@ -671,8 +865,17 @@ async function main() {
       finish();
       return;
     }
+    console.log(`models: ${state.models.map((model) => model.id).join(" -> ") || "none"}`);
     console.log(buildTaskPrompt(task, 1));
     state.stopReason = "dry run";
+    finish();
+    return;
+  }
+
+  if (state.models.length === 0) {
+    state.failed = true;
+    state.stopReason = "no model with provider key";
+    log("models.missing", { message: "set ANTHROPIC_API_KEY / GEMINI_API_KEY or FA_MODELS" });
     finish();
     return;
   }
@@ -707,22 +910,27 @@ async function main() {
   }
 
   // Claim, оставшийся от ручной правки или убитого процесса, не должен блокировать очередь.
+  // Блоки из-за квоты провайдера тоже временные: снимаем их до выбора задачи.
   try {
     const queueText = readQueueText();
-    const recovered = resetStaleClaims(queueText);
+    const claimsReset = resetStaleClaims(queueText);
+    const recovered = resetQuotaBlocks(claimsReset);
     if (recovered !== queueText) {
       writeQueue(recovered);
-      const sha = git.commitAll("chore(fa): recover stale claims", ["FA: stale [~] reset to [ ]"]);
+      const sha = git.commitAll("chore(fa): recover queue", [
+        "FA: stale [~] and quota [!] reset to [ ]",
+        "Quota is transient; the task must be retried on the next run."
+      ]);
       if (!cli.noPush) pushWithRetry();
-      log("queue.recover", { message: `stale claims reset (${sha.slice(0, 8)})` });
+      log("queue.recover", { message: `queue recovered (${sha.slice(0, 8)})` });
     }
   } catch (error) {
     log("queue.recover.error", { message: error.message });
   }
 
-  const maxTasks = options.maxTasks || LIMITS.maxTasks;
-
-  while (true) {
+  // Цикл нужен только для инфра-повторов внутри runTask; после первой
+  // обработанной задачи запуск завершается.
+  while (state.tasks.length === 0) {
     const stop = killSwitch();
     if (stop) {
       state.stopReason = stop;
@@ -745,16 +953,6 @@ async function main() {
       break;
     }
 
-    if (options.once && state.tasks.length > 0) {
-      state.stopReason = "once";
-      break;
-    }
-
-    if (maxTasks > 0 && state.tasks.length >= maxTasks) {
-      state.stopReason = "max tasks reached";
-      break;
-    }
-
     const tasks = readQueue();
     const task = options.task ? findTask(tasks, options.task) : selectNext(tasks);
 
@@ -771,11 +969,8 @@ async function main() {
     }
 
     const outcome = await runTask(task);
-    if (outcome.result === "infra") break;
-    if (options.task) {
-      state.stopReason = `task ${task.id} ${outcome.result}`;
-      break;
-    }
+    state.stopReason = `task ${task.id} ${outcome.result}`;
+    break;
   }
 
   finish();
@@ -790,7 +985,9 @@ function finish() {
     startedAt: new Date(state.startedAt).toISOString(),
     finishedAt: nowIso(),
     durationMs,
-    model: MODEL,
+    model: state.activeModel || state.models[0]?.id || "",
+    models: state.models.map((model) => model.id),
+    modelFallbacks: state.modelFallbacks,
     prompt: PROMPT_VERSION,
     tasksDone: state.tasksDone,
     tasksBlocked: state.tasksBlocked,

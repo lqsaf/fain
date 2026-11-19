@@ -4,7 +4,8 @@
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { PATHS, MODEL, ensureDir } from "./config.mjs";
+import { PATHS, ensureDir } from "./config.mjs";
+import { modelLabel } from "./models.mjs";
 import { readQueue, queueStats } from "./queue.mjs";
 
 const STATUS_ICON = { todo: "[ ]", claimed: "[~]", blocked: "[!]", done: "[x]" };
@@ -40,11 +41,12 @@ export function queueTable(tasks) {
 
 export function statusMarkdown(tasks, summary, meta = {}) {
   const stats = queueStats(tasks);
+  const model = meta.model || summary?.model || modelLabel();
   const lines = [
     "# FA status",
     "",
     `Обновлено: ${new Date().toISOString()}`,
-    `Модель: \`${meta.model || MODEL}\``,
+    `Модель: \`${model}\``,
     "",
     "## Очередь",
     "",
@@ -63,6 +65,7 @@ export function statusMarkdown(tasks, summary, meta = {}) {
       `- Причина остановки: \`${summary.stopReason || "unknown"}\``,
       `- Задач выполнено: ${summary.tasksDone ?? 0}`,
       `- Задач заблокировано: ${summary.tasksBlocked ?? 0}`,
+      `- Модель: ${summary.model || "n/a"}, fallback: ${summary.modelFallbacks ?? 0}`,
       `- Токены: ${summary.tokens?.total ?? 0}`,
       `- Длительность: ${Math.round((summary.durationMs || 0) / 1000)} s`
     );
@@ -82,12 +85,13 @@ export function statusMarkdown(tasks, summary, meta = {}) {
 
 export function prBody(tasks, summary, meta = {}) {
   const stats = queueStats(tasks);
+  const model = meta.model || summary?.model || modelLabel();
   const header = [
     "## FA — free agent",
     "",
     "Автоматический PR. Коммиты делает оркестратор, merge — человек.",
     "",
-    `Модель: \`${meta.model || MODEL}\` · задач: **${stats.done}/${stats.total}** · todo: **${stats.todo}** · blocked: **${stats.blocked}**`,
+    `Модель: \`${model}\` · задач: **${stats.done}/${stats.total}** · todo: **${stats.todo}** · blocked: **${stats.blocked}**`,
     ""
   ];
 
@@ -97,6 +101,7 @@ export function prBody(tasks, summary, meta = {}) {
       "",
       `- \`${summary.runId || "unknown"}\` → **${summary.ok ? "ok" : "failed"}** (${summary.stopReason || "unknown"})`,
       `- Выполнено: ${summary.tasksDone ?? 0}, заблокировано: ${summary.tasksBlocked ?? 0}`,
+      `- Модель: ${summary.model || "n/a"}, fallback: ${summary.modelFallbacks ?? 0}`,
       `- Токены: ${summary.tokens?.total ?? 0}, длительность: ${Math.round((summary.durationMs || 0) / 1000)} s`,
       ""
     );

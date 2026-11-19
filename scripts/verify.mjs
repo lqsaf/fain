@@ -170,7 +170,8 @@ const REQUIRED_FILES = [
   "docs/harness/OPERATING.md",
   "docs/CONVENTIONS.md",
   ".opencode/agents/fa.md",
-  "scripts/verify.mjs"
+  "scripts/verify.mjs",
+  "scripts/fa/models.mjs"
 ];
 
 const HARNESS_DOCS = [
@@ -197,7 +198,7 @@ async function checkRequiredFiles() {
 }
 
 async function checkJsSyntax() {
-  const files = [...walk("js", (file) => file.endsWith(".js"))];
+  const files = [...walk("js", (file) => file.endsWith(".js")), ...walk("scripts", (file) => file.endsWith(".mjs"))];
   if (existsSync(join(ROOT, "worker.js"))) files.push("worker.js");
   assert(files.length > 0, "no JavaScript files found");
 
@@ -473,6 +474,35 @@ async function checkOpencodeConfig() {
   return "ok";
 }
 
+async function checkModelRegistry() {
+  const moduleUrl = `${pathToFileURL(join(ROOT, "scripts/fa/models.mjs")).href}?verify=${Date.now()}`;
+  const models = await import(moduleUrl);
+
+  assert(Array.isArray(models.DEFAULT_MODELS) && models.DEFAULT_MODELS.length > 0, "models.mjs: DEFAULT_MODELS is empty");
+
+  const problems = [];
+  const ids = new Set();
+  for (const model of models.DEFAULT_MODELS) {
+    if (!model || typeof model !== "object") {
+      problems.push("models.mjs: model entry is not an object");
+      continue;
+    }
+    if (!/^[a-z0-9-]+\/[A-Za-z0-9._/-]+(?:#[a-z0-9-]+)?$/.test(String(model.id || ""))) {
+      problems.push(`models.mjs: invalid model id "${model.id}"`);
+    }
+    if (ids.has(model.id)) problems.push(`models.mjs: duplicate model id "${model.id}"`);
+    ids.add(model.id);
+    if (model.provider !== models.providerOf(model.id)) {
+      problems.push(`models.mjs: provider mismatch for "${model.id}"`);
+    }
+  }
+
+  assert(models.classifyFailure("429 too many requests") === "quota", "models.mjs: quota classification is broken");
+  assert(models.classifyFailure("VERDICT: FAIL") === "other", "models.mjs: code failure must not be treated as quota");
+  assert(problems.length === 0, problems.slice(0, 12).join("; "));
+  return `${models.DEFAULT_MODELS.length} models`;
+}
+
 async function checkQueue() {
   assert(existsSync(join(ROOT, "TASKS.md")), "TASKS.md is missing");
   const tasks = parseQueue(read("TASKS.md"));
@@ -575,6 +605,7 @@ async function main() {
   await run("css.integrity", checkCss);
   await run("feed.schema", checkFeedJson);
   await run("opencode.config", checkOpencodeConfig);
+  await run("models.registry", checkModelRegistry);
   await run("queue.protocol", checkQueue);
   await run("package.json", checkPackageJson);
   await run("docs.size", checkDocsSize);

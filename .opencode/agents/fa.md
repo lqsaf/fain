@@ -1,7 +1,6 @@
 ---
 description: FA — автономный инженер; выполняет ровно одну задачу из TASKS.md
 mode: primary
-model: opencode/deepseek-v4.1-flash-free#high
 steps: 60
 color: "#7bd88f"
 permissions:

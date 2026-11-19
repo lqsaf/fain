@@ -10,8 +10,6 @@ export const BRANCH = process.env.FA_BRANCH || "fa/work";
 export const BASE_BRANCH = process.env.FA_BASE_BRANCH || "main";
 export const AGENT = "fa";
 export const REVIEWER_AGENT = "fa-reviewer";
-export const MODEL = process.env.FA_MODEL || "opencode/deepseek-v4.1-flash-free#high";
-export const REVIEW_MODEL = process.env.FA_REVIEW_MODEL || "opencode/deepseek-v4.1-flash-free#high";
 export const OPENCODE_BIN = process.env.FA_OPENCODE_BIN || "opencode";
 export const PROMPT_VERSION = "task-v1";
 export const AGENT_PROMPT_VERSION = "fa-v1";
@@ -34,8 +32,8 @@ function readNumber(name, fallback) {
 
 export const LIMITS = {
   taskTimeoutMs: readNumber("FA_TASK_TIMEOUT_MIN", 25) * 60_000,
-  runBudgetMs: readNumber("FA_RUN_BUDGET_MIN", 300) * 60_000,
-  maxTasks: readNumber("FA_MAX_TASKS", 0),
+  // Один запуск — ровно одна задача. 90 минут хватает на две попытки и review.
+  runBudgetMs: readNumber("FA_RUN_BUDGET_MIN", 90) * 60_000,
   maxAttempts: Math.max(1, readNumber("FA_MAX_ATTEMPTS", 2)),
   tokenBudget: readNumber("FA_TOKEN_BUDGET", 2_000_000),
   maxInfraFailures: Math.max(1, readNumber("FA_MAX_INFRA_FAILURES", 3)),
@@ -82,8 +80,4 @@ export function killSwitch() {
 
 export function budgetExhausted(startedAt, limits = LIMITS) {
   return Date.now() - startedAt >= limits.runBudgetMs;
-}
-
-export function modelLabel() {
-  return MODEL;
 }

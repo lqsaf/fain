@@ -16,8 +16,11 @@
 
 | Вопрос | Ответ | Где |
 | --- | --- | --- |
-| Есть инварианты, которые не может обойти модель? | Да, 12 проверок в `scripts/verify.mjs` | [VERIFICATION.md](VERIFICATION.md) |
+| Есть инварианты, которые не может обойти модель? | Да, 13 проверок в `scripts/verify.mjs` | [VERIFICATION.md](VERIFICATION.md) |
 | Проверки запускает агент или оркестратор? | Оркестратор, после агента | `scripts/fa/loop.mjs` |
+| Где выбирается модель? | В одном месте: `scripts/fa/models.mjs` + `FA_MODELS` | `scripts/fa/models.mjs` |
+| Есть fallback при квоте? | Да: Claude Haiku → Gemini Flash-Lite, без остановки шага | `scripts/fa/loop.mjs`, `scripts/fa/models.mjs` |
+| У каждого провайдера свой ключ? | Да: `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` | `.github/workflows/fa.yml` |
 | Есть автоматический замер при смене модели? | Да, `npm run fa:eval -- --suite model` | [PROMPTS.md](PROMPTS.md) |
 | Замер сравнивается с эталоном? | Да, baseline в `PROMPTS.md` | [PROMPTS.md](PROMPTS.md) |
 | Промпты версионируются? | Да, версия в промпте задачи и в документе | [PROMPTS.md](PROMPTS.md) |
@@ -53,9 +56,10 @@
 | Агент пушит в main? | Нет, только в `fa/work` и только через PR | [GOVERNANCE.md](GOVERNANCE.md) |
 | Merge делает человек? | Да, auto-merge выключен | [GOVERNANCE.md](GOVERNANCE.md) |
 | Задача = один PR? | Да, один коммит на задачу в rolling PR | [LIFECYCLE.md](LIFECYCLE.md) |
-| Провал не блокирует весь проект? | Да, откат, попытка, затем `[!]` и следующая задача | [LIFECYCLE.md](LIFECYCLE.md) |
+| Один запуск = одна задача? | Да, после первой задачи job завершается | `scripts/fa/loop.mjs` |
+| Провал не блокирует весь проект? | Да, откат, попытка, затем `[!]`; запуск завершается, очередь живёт дальше | [LIFECYCLE.md](LIFECYCLE.md) |
 | Работа не теряется при падении раннера? | Коммит и push после каждой задачи | `scripts/fa/loop.mjs` |
-| Есть бюджет на запуск? | Да, время + токены + лимит задач | [EXECUTION.md](EXECUTION.md) |
+| Есть бюджет на запуск? | Да, время + токены; задача всегда одна | [EXECUTION.md](EXECUTION.md) |
 | Зависимости не растут? | Да, проект dependency-free, `npm install` запрещён | `AGENTS.md`, `scripts/verify.mjs` |
 
 ## Что осталось за человеком

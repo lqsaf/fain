@@ -15,6 +15,7 @@
 | `css.integrity` | небалансированные скобки, отсутствующие `url()` |
 | `feed.schema` | структура `feed.json`, дубли ID, даты |
 | `opencode.config` | битый JSONC, deprecated-поля, несуществующий агент |
+| `models.registry` | пустой/битый список моделей, дубли ID, неверная классификация quota |
 | `queue.protocol` | дубли ID, битые статусы, >1 claimed, неизвестные зависимости |
 | `package.json` | отсутствие `scripts.verify`, `type: module` |
 | `diff.guard` | секреты в добавленных строках, размер диффа |
@@ -33,7 +34,7 @@
 Замер: фиксированная микрозадача в чистой копии репозитория, одинаковый промпт, одинаковые проверки. Считаем pass/fail, шаги, токены, время, размер диффа. Сравниваем с эталоном в [PROMPTS.md](PROMPTS.md).
 
 ```bash
-npm run fa:eval -- --suite model --models opencode/deepseek-v4.1-flash-free#high,opencode/deepseek-v4.1-flash-free#max
+npm run fa:eval -- --suite model --models anthropic/claude-haiku-4-5,google/gemini-3.1-flash-lite#low
 ```
 
 ## Уровень 3 — человек

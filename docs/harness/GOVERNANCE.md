@@ -11,7 +11,7 @@
 | Необратимое действие | deploy, push в main, удаление | deny `git push`, `gh`, `wrangler`, `rm -rf`; PR-only; hook на main |
 | Самомодификация | правка harness-файлов | protected paths + проверка после агента |
 | Supply chain | новая зависимость | `npm install` запрещён, `package.json` защищён |
-| Runaway cost | бесконечный цикл | лимиты шагов, времени, токенов; детект повторов |
+| Runaway cost | длинный цикл/повторы | один запуск = одна задача; лимиты шагов, времени, токенов; детект повторов |
 | Загрязнение main | прямой push | ветка `fa/work`, PR, branch protection |
 | Кража токена CI | логи/артефакты | маскирование, минимальные permissions, без `pull_request_target` |
 
@@ -62,14 +62,14 @@ FA не может их менять. Изменения делает челов
 
 ## Секреты
 
-- Только GitHub Secrets: `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `OPENCODE_API_KEY`, опционально `FA_PAT`.
+- Только GitHub Secrets: `ANTHROPIC_API_KEY` (Claude), `GEMINI_API_KEY` (Gemini), `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `OPENCODE_API_KEY`, опционально `FA_PAT`.
 - `.dev.vars`, `.env` — в `.gitignore`, чтение агентом запрещено.
 - Ключи не попадают в `TASKS.md`, логи, PR body, issue.
 - При подозрении на утечку: отозвать ключ, удалить artifact, проверить diff, инцидент.
 
 ## Kill switch
 
-1. Repo variable `FA_ENABLED=false` — новый цикл не стартует.
+1. Repo variable `FA_ENABLED=false` — новый запуск не стартует.
 2. Файл `FA_STOP` в корне — аварийный предохранитель.
 3. `workflow_dispatch` `mode=stop` — отмена активных запусков.
 4. Cancel job в UI — мгновенная остановка.
@@ -91,7 +91,7 @@ FA не может их менять. Изменения делает челов
 
 ## Реакция на инцидент
 
-1. Остановить цикл (kill switch).
+1. Остановить запуски (kill switch).
 2. Скачать artifact, определить задачу и tool calls.
 3. Отозвать скомпрометированные секреты.
 4. Откатить подозрительный коммит/PR.

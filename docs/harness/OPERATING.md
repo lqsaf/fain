@@ -4,28 +4,27 @@ FA живёт в GitHub Actions и не требует ноутбука. Это�
 
 ## Что нужно один раз
 
-1. **Секрет провайдера.** `Settings → Secrets and variables → Actions → New repository secret`.
-   Минимум один ключ: `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY` или `OPENCODE_API_KEY`.
-   Для модели по умолчанию `opencode/deepseek-v4.1-flash-free#high` нужен `OPENCODE_API_KEY`; если его нет, задайте `FA_MODEL` под тот провайдер, ключ которого есть.
-2. **Модель.** Переменная `FA_MODEL` (например, `opencode/deepseek-v4.1-flash-free#high`). Если не задана, используется значение по умолчанию из workflow: `opencode/deepseek-v4.1-flash-free#high`.
+1. **Ключи провайдеров.** `Settings → Secrets and variables → Actions → New repository secret`.
+   Для цепочки по умолчанию нужны два ключа: `ANTHROPIC_API_KEY` (Claude Haiku 4.5) и `GEMINI_API_KEY` (Gemini 3.1 Flash-Lite). Дополнительно поддерживаются `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `OPENCODE_API_KEY`.
+   Если ключа одного провайдера нет, его модель пропускается; при отсутствии обоих preflight падает.
+2. **Модели.** Порядок задаётся в одном месте — `scripts/fa/models.mjs`. Переменная `FA_MODELS` (repo variable) переопределяет список, например `anthropic/claude-haiku-4-5,google/gemini-3.1-flash-lite#low`. Первая модель — основная, следующая — fallback при квоте.
 3. **Права.** В `Settings → Actions → General → Workflow permissions` разрешить `Read and write permissions`.
 4. **Branch protection для `main`.** Только PR, обязательный check `fa-verify`, запрет force-push и удаления. Merge делает человек.
 5. **Опционально `FA_PAT`.** Fine-grained token с правами `contents`, `pull-requests`, `issues`. Нужен, чтобы PR, созданный FA, запускал проверки: push с `GITHUB_TOKEN` не триггерит другие workflow.
 6. **Включение.** Переменная `FA_ENABLED`:
    - не задана или `true` — FA работает;
-   - `false` — новый цикл не стартует.
+   - `false` — новый запуск не стартует.
 
-После этого расписание `*/15 * * * *` поднимает цикл, если есть задачи и нет стоп-сигнала.
+После этого расписание `*/15 * * * *` запускает ровно одну задачу, если очередь не пуста и нет стоп-сигнала.
 
 ## Переменные
 
 | Переменная | По умолчанию | Смысл |
 | --- | --- | --- |
-| `FA_MODEL` | `opencode/deepseek-v4.1-flash-free#high` | модель агента `fa` (вариант `#high`; доступны `low`, `high`, `max`) |
+| `FA_MODELS` | `anthropic/claude-haiku-4-5,google/gemini-3.1-flash-lite#low` | упорядоченная цепочка моделей; первая — основная, следующие — fallback |
 | `FA_ENABLED` | включено | глобальный выключатель |
-| `FA_MAX_TASKS` | без лимита | максимум задач за запуск |
 | `FA_TASK_TIMEOUT_MIN` | `25` | таймаут одной задачи |
-| `FA_RUN_BUDGET_MIN` | `300` | бюджет времени запуска |
+| `FA_RUN_BUDGET_MIN` | `90` | бюджет времени запуска |
 | `FA_MAX_ATTEMPTS` | `2` | попыток на задачу |
 | `FA_TOKEN_BUDGET` | `2000000` | токен-бюджет запуска |
 | `FA_MAX_INFRA_FAILURES` | `3` | инфра-провалов подряд до остановки |
@@ -39,16 +38,16 @@ FA живёт в GitHub Actions и не требует ноутбука. Это�
 2. Открыть `Actions → FA → Run workflow`, выбрать `mode=run`.
 3. Дождаться первого PR из `fa/work` в `main`.
 4. Проверить, что `fa-verify` зелёный, diff минимален, acceptance выполнен.
-5. Смержить PR. Следующий цикл начнёт ветку заново.
+5. Смержить PR. Следующий запуск продолжит с той же веткой или начнёт её заново после merge.
 
-Если нужно проверить только одну задачу — `mode=once` или локально `npm run fa:once`.
+`mode=run` и `mode=once` делают одно и то же — одну задачу; `once` оставлен для совместимости.
 
 ## Остановка
 
 | Способ | Что делает | Когда использовать |
 | --- | --- | --- |
-| `FA_ENABLED=false` | новый цикл не стартует | планово, на ночь, на время отпуска |
-| файл `FA_STOP` в корне | цикл завершается после текущей задачи | аварийно, без доступа к Settings |
+| `FA_ENABLED=false` | новый запуск не стартует | планово, на ночь, на время отпуска |
+| файл `FA_STOP` в корне | запуск завершается после текущей задачи | аварийно, без доступа к Settings |
 | `workflow_dispatch` → `mode=stop` | отменяет активные запуски | срочно |
 | Cancel job в UI | мгновенная остановка процесса | совсем срочно |
 
@@ -66,7 +65,7 @@ FA живёт в GitHub Actions и не требует ноутбука. Это�
 - Смотреть открытый PR `fa/work → main`. Один rolling PR, тело обновляется после каждой задачи.
 - Смотреть `fa/logs/STATUS.md` в artifact: очередь, последний запуск, попытки.
 - Смотреть issues с заголовком `FA blocked:` и `FA infrastructure failure`.
-- Не редактировать `fa/work` вручную во время работы цикла: `concurrency: fa-loop` не даст двум запускам пересечься, но локальные правки могут конфликтовать.
+- Не редактировать `fa/work` вручную во время работы FA: `concurrency: fa-loop` не даст двум запускам пересечься, но локальные правки могут конфликтовать.
 - Задачи добавлять в `TASKS.md` через PR в `main`. FA не меняет очередь.
 
 ## Локальный запуск
@@ -74,7 +73,7 @@ FA живёт в GitHub Actions и не требует ноутбука. Это�
 Локально FA нужен для отладки harness, а не для постоянной работы.
 
 ```bash
-export FA_MODEL="opencode/deepseek-v4.1-flash-free#high"
+export ANTHROPIC_API_KEY="..."     # не коммитить
 export GEMINI_API_KEY="..."        # не коммитить
 npm run fa:preflight
 npm run fa -- --force-local --once
@@ -106,17 +105,19 @@ fa/logs/<run>/
 | `verify` падает на i18n | забыт ключ в одном языке | добавить во все три локали |
 | `verify` падает на HTML | `getElementById` без элемента | синхронизировать HTML и JS |
 | PR не запускает checks | push сделан `GITHUB_TOKEN` | добавить `FA_PAT` |
-| цикл не стартует | `FA_ENABLED=false`, `FA_STOP`, пустая очередь | проверить gate в workflow |
-| 401 от провайдера | секрет не задан или отозван | обновить secret, перезапустить |
+| запуск не стартует | `FA_ENABLED=false`, `FA_STOP`, пустая очередь | проверить gate в workflow |
+| 401 от провайдера | секрет не задан или отозван | обновить secret, перезапустить; при наличии второй модели FA переключится сам |
+| 429/quota от провайдера | исчерпан лимит модели | FA перейдёт к следующей модели из `FA_MODELS`; если все исчерпаны — задача останется `[ ]` |
 | задача вечно `[~]` | ручной claim без запуска | оркестратор сбросит stale claim при старте |
 
 ## Стоимость
 
-- Один запуск ограничен `FA_RUN_BUDGET_MIN` и `FA_TOKEN_BUDGET`.
+- Один запуск = одна задача, ограничен `FA_RUN_BUDGET_MIN` и `FA_TOKEN_BUDGET`.
 - Одна задача ограничена `FA_TASK_TIMEOUT_MIN` и `steps` агента.
-- Watchdog не создаёт параллельные циклы: `concurrency: fa-loop`.
+- Watchdog не создаёт параллельные запуски: `concurrency: fa-loop`.
 - Пустая очередь не тратит токены: gate завершает job до запуска модели.
-- При смене модели сначала прогнать `npm run fa:eval -- --suite model`, потом менять `FA_MODEL`.
+- Квота одной модели не останавливает шаг: FA переключается на следующую из `FA_MODELS`.
+- При смене моделей сначала прогнать `npm run fa:eval -- --suite model`, потом менять `FA_MODELS`.
 
 ## Обновление harness
 
@@ -133,4 +134,4 @@ npm run fa:preflight
 
 - Блокировка задачи → issue `FA blocked: Txx`.
 - Инфра-провал → issue `FA infrastructure failure`.
-- Безопасность → [GOVERNANCE.md](GOVERNANCE.md), затем отзыв секретов и остановка цикла.
+- Безопасность → [GOVERNANCE.md](GOVERNANCE.md), затем отзыв секретов и остановка запусков.

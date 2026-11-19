@@ -2,12 +2,12 @@ name: FA
 
 "on":
   schedule:
-    # Watchdog: поднимает цикл, если он завершился, а задачи остались.
+    # Watchdog: каждые 15 минут запускает ровно одну задачу, если очередь не пуста.
     - cron: "*/15 * * * *"
   workflow_dispatch:
     inputs:
       mode:
-        description: "run — непрерывный цикл, once — одна задача, stop — отменить активные запуски"
+        description: "run/once — одна задача, stop — отменить активные запуски"
         type: choice
         options:
           - run
@@ -21,7 +21,7 @@ permissions:
   issues: write
 
 concurrency:
-  # Stop идёт отдельной группой и не ждёт активный цикл; run/once — в общей.
+  # Stop идёт отдельной группой и не ждёт активный запуск; run/once — в общей.
   group: ${{ github.event.inputs.mode == 'stop' && 'fa-stop' || 'fa-loop' }}
   cancel-in-progress: false
 
@@ -29,7 +29,7 @@ jobs:
   fa:
     if: ${{ github.event.inputs.mode != 'stop' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 350
+    timeout-minutes: 90
 
     steps:
       - name: Checkout
@@ -92,10 +92,10 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
-          FA_MODEL: ${{ vars.FA_MODEL || 'opencode/deepseek-v4.1-flash-free#high' }}
-          FA_REVIEW_MODEL: ${{ vars.FA_REVIEW_MODEL || 'opencode/deepseek-v4.1-flash-free#high' }}
+          # Единственное место выбора моделей — scripts/fa/models.mjs.
+          # FA_MODELS (repo variable) переопределяет цепочку в формате provider/model#variant.
+          FA_MODELS: ${{ vars.FA_MODELS }}
           FA_ENABLED: ${{ vars.FA_ENABLED }}
-          FA_MAX_TASKS: ${{ vars.FA_MAX_TASKS }}
           FA_TASK_TIMEOUT_MIN: ${{ vars.FA_TASK_TIMEOUT_MIN }}
           FA_RUN_BUDGET_MIN: ${{ vars.FA_RUN_BUDGET_MIN }}
           FA_MAX_ATTEMPTS: ${{ vars.FA_MAX_ATTEMPTS }}

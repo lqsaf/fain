@@ -8,7 +8,8 @@
 | --- | --- | --- | --- |
 | `scripts/verify.mjs` | инварианты проекта | `--json`, `--diff <base>`, `--protected` | exit 0/1/2, JSON |
 | `scripts/fa/queue.mjs` | очередь задач | `list`, `json`, `stats` | таблица/JSON |
-| `scripts/fa/loop.mjs` | оркестратор цикла | `--once`, `--task`, `--dry-run`, `--preflight` | exit 0/1/2, `run.jsonl` |
+| `scripts/fa/models.mjs` | реестр моделей и fallback | `FA_MODELS` | порядок, ключи, классификация ошибок |
+| `scripts/fa/loop.mjs` | оркестратор запуска | `--once`, `--task`, `--dry-run`, `--preflight` | exit 0/1/2, `run.jsonl` |
 | `scripts/fa/metrics.mjs` | разбор событий OpenCode | путь к `.jsonl` | JSON-метрики |
 | `scripts/fa/report.mjs` | статус и PR body | `--pr-body`, `--github-summary` | Markdown |
 | `scripts/fa/eval.mjs` | замеры качества | `--suite invariants|model` | JSON + таблица |
