@@ -4,7 +4,14 @@
 //
 // Формат id совпадает с `opencode --model`: provider/model[#variant].
 
+// Цепочка через прокси XEROSHARC: haiku → sonnet → gpt-5.5.
+// ID моделей — точно как в GET https://xerosharc.site/v1/models для этого ключа.
 export const DEFAULT_MODELS = [
+  {
+    id: "xerosharc/claude-haiku-5-5",
+    label: "Claude Haiku 5.5 (XEROSHARC)",
+    provider: "xerosharc"
+  },
   {
     id: "xerosharc/claude-sonnet-5-5",
     label: "Claude Sonnet 5.5 (XEROSHARC)",
@@ -24,7 +31,8 @@ const PROVIDER_KEYS = {
   google: ["GEMINI_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY", "GOOGLE_API_KEY"],
   openai: ["OPENAI_API_KEY"],
   openrouter: ["OPENROUTER_API_KEY"],
-  opencode: ["OPENCODE_API_KEY"]
+  opencode: ["OPENCODE_API_KEY"],
+  xerosharc: ["XEROSHARC_API_KEY"]
 };
 
 const FREE_MODEL_RE = /^opencode\/[^#]*-free(?:#.*)?$/i;
@@ -101,7 +109,13 @@ export function classifyFailure(detail) {
     return "auth";
   }
 
-  if (/overloaded|service unavailable|upstream|fetch failed|network|econn|etimedout|\b50[234]\b/i.test(text)) {
+  // Битый/недоступный id модели — ошибка конфига, не задачи: fallback вместо
+  // сожжённых попыток (инцидент T04: "Invalid model reference: gpt-5.5").
+  if (
+    /overloaded|service unavailable|upstream|fetch failed|network|econn|etimedout|\b50[234]\b|invalid model reference|model not found|unknown model/i.test(
+      text
+    )
+  ) {
     return "unavailable";
   }
 
