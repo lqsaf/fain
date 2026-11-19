@@ -6,7 +6,7 @@
 
 export const DEFAULT_MODELS = [
   {
-    id: "anthropic/claude-haiku-5.5#low",
+    id: "anthropic/claude-haiku-5-5",
     label: "Claude Haiku 5.5",
     provider: "anthropic"
   },
