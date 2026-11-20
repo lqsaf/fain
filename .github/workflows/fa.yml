@@ -20,10 +20,7 @@ name: FA
         options:
           - inherit
           - google/gemini-3.1-flash-lite
-          - xerosharc/claude-haiku-5-5
-          - xerosharc/claude-sonnet-5-5
           - nvidia/nemotron-3-ultra-550b-a55b
-          - openrouter/baidu/ernie-5.5-flash-preview:free
         default: inherit
       executor_model:
         description: "Исполнитель: модель для реализации"
@@ -31,8 +28,6 @@ name: FA
         options:
           - inherit
           - google/gemini-3.1-flash-lite
-          - xerosharc/claude-haiku-5-5
-          - xerosharc/claude-sonnet-5-5
           - nvidia/nemotron-3-ultra-550b-a55b
         default: inherit
       repair_model:
@@ -41,8 +36,6 @@ name: FA
         options:
           - inherit
           - google/gemini-3.1-flash-lite
-          - xerosharc/claude-haiku-5-5
-          - xerosharc/claude-sonnet-5-5
           - nvidia/nemotron-3-ultra-550b-a55b
         default: inherit
       reviewer_model:
@@ -51,10 +44,7 @@ name: FA
         options:
           - inherit
           - google/gemini-3.1-flash-lite
-          - xerosharc/claude-haiku-5-5
-          - xerosharc/claude-sonnet-5-5
           - nvidia/nemotron-3-ultra-550b-a55b
-          - openrouter/baidu/ernie-5.5-flash-preview:free
         default: inherit
 
 permissions:
@@ -153,8 +143,6 @@ jobs:
           GEMINI_API_KEY_5: ${{ secrets.GEMINI_API_KEY_5 }}
           GOOGLE_GENERATIVE_AI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-          XEROSHARC_API_KEY: ${{ secrets.XEROSHARC_API_KEY }}
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY || secrets.NVIDIA_NIM_API_KEY }}
           NVIDIA_NIM_API_KEY: ${{ secrets.NVIDIA_NIM_API_KEY }}
           # Единственное место выбора моделей — scripts/fa/models.mjs.
@@ -170,7 +158,6 @@ jobs:
           FA_RUN_BUDGET_MIN: ${{ vars.FA_RUN_BUDGET_MIN }}
           FA_MAX_ATTEMPTS: ${{ vars.FA_MAX_ATTEMPTS }}
           FA_TOKEN_BUDGET: ${{ vars.FA_TOKEN_BUDGET }}
-          FA_OPENROUTER_ERNIE_DAILY_LIMIT: ${{ vars.FA_OPENROUTER_ERNIE_DAILY_LIMIT }}
           FA_MAX_INFRA_FAILURES: ${{ vars.FA_MAX_INFRA_FAILURES }}
         run: |
           set -euo pipefail

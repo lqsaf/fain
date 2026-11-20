@@ -550,6 +550,9 @@ async function checkModelRegistry() {
     if (model.provider !== models.providerOf(model.id)) {
       problems.push(`models.mjs: provider mismatch for "${model.id}"`);
     }
+    if (!models.ALLOWED_PROVIDERS.has(model.provider)) {
+      problems.push(`models.mjs: disallowed provider "${model.provider}"`);
+    }
     if (!Array.isArray(model.roles) || model.roles.length === 0) {
       problems.push(`models.mjs: ${model.id} has no roles`);
     }
@@ -569,8 +572,11 @@ async function checkModelRegistry() {
     FA_REVIEWER_MODEL: "",
     FA_AVAILABLE_MODELS: "",
     FA_EXCLUDE_MODELS: "",
+    FA_ALLOW_OPTIONAL: "",
     GEMINI_API_KEY: "verify-test-key",
-    XEROSHARC_API_KEY: "verify-test-key"
+    GOOGLE_GENERATIVE_AI_API_KEY: "",
+    GOOGLE_API_KEY: "",
+    NVIDIA_API_KEY: "verify-test-key"
   });
   for (const role of models.MODEL_ROLES) {
     if (!Array.isArray(roles[role]) || roles[role].length === 0) problems.push(`models.mjs: role ${role} is empty`);
@@ -579,8 +585,50 @@ async function checkModelRegistry() {
   if (!nvidiaModel || nvidiaModel.id !== "nvidia/nemotron-3-ultra-550b-a55b") {
     problems.push("models.mjs: NVIDIA NIM must use the active Nemotron model");
   }
+  if (new Set(models.DEFAULT_MODELS.map((model) => model.provider)).size !== 2) {
+    problems.push("models.mjs: defaults must contain exactly Gemini and NVIDIA");
+  }
+  const legacyEnv = {
+    ...process.env,
+    FA_MODELS: "xerosharc/claude-sonnet-5-5,openrouter/baidu/ernie-5.5-flash-preview:free",
+    FA_AVAILABLE_MODELS: "",
+    FA_EXCLUDE_MODELS: "",
+    FA_ALLOW_OPTIONAL: "",
+    GEMINI_API_KEY: "verify-test-key",
+    GOOGLE_GENERATIVE_AI_API_KEY: "",
+    GOOGLE_API_KEY: "",
+    NVIDIA_API_KEY: "verify-test-key"
+  };
+  const defaultExecutor = models.modelsForRole("executor", {
+    ...legacyEnv,
+    FA_MODELS: "",
+    FA_EXECUTOR_MODEL: ""
+  }).map((model) => model.id);
+  if (defaultExecutor[0] !== nvidiaModel?.id || !defaultExecutor.includes("google/gemini-3.1-flash-lite")) {
+    problems.push("models.mjs: executor must prefer NVIDIA and retain Gemini fallback");
+  }
+  for (const role of models.MODEL_ROLES) {
+    const roleEnv = { ...legacyEnv, [`FA_${role.toUpperCase()}_MODEL`]: "xerosharc/claude-sonnet-5-5" };
+    if (models.modelsForRole(role, roleEnv).some((model) => !models.ALLOWED_PROVIDERS.has(model.provider))) {
+      problems.push(`models.mjs: stale ${role} override bypassed provider allowlist`);
+    }
+  }
+  const staleProbe = models.modelsForRole("executor", {
+    ...legacyEnv,
+    FA_MODELS: "",
+    FA_AVAILABLE_MODELS: "xerosharc/claude-sonnet-5-5"
+  });
+  if (staleProbe[0]?.id !== nvidiaModel?.id) {
+    problems.push("models.mjs: stale provider probe blocked the NVIDIA executor default");
+  }
   if (!read("opencode.jsonc").includes('"modelID": "nvidia/nemotron-3-ultra-550b-a55b"')) {
     problems.push("opencode.jsonc: NVIDIA NIM modelID does not match the live API model ID");
+  }
+  if (/xerosharc|openrouter/i.test(read("opencode.jsonc"))) {
+    problems.push("opencode.jsonc: removed provider configuration remains");
+  }
+  if (/XEROSHARC_API_KEY|OPENROUTER_API_KEY/.test(read(".github/workflows/fa.yml"))) {
+    problems.push("fa.yml: removed provider secrets remain in workflow");
   }
 
   assert(models.classifyFailure("429 too many requests") === "quota", "models.mjs: quota classification is broken");

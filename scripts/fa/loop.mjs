@@ -691,7 +691,7 @@ async function phaseReview({ task, context, plan, verify, ui, attempt, round }) 
   const plannerModel = [...state.phases]
     .reverse()
     .find((phase) => phase.phase === "plan" || phase.phase === "plan-repair")?.model;
-  const excludeModels = [state.executorModel, plannerModel].filter(Boolean);
+  const excludeModels = [state.executorModel].filter(Boolean);
   const result = await runPhase({
     session: state.session,
     role: "reviewer",

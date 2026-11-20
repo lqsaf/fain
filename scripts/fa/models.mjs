@@ -9,48 +9,31 @@
 //   FA_AVAILABLE_MODELS    — белый список фактически доступных ID (из probe)
 //   FA_EXCLUDE_MODELS      — чёрный список ID
 //
-// ID должны совпадать с `opencode models`; при наличии gateway-ключа
-// `probeGatewayModels()` уточняет список фактически отданных моделей.
+// ID должны совпадать с `opencode models`.
 
 import { spawnSync } from "node:child_process";
 
 export const MODEL_ROLES = ["planner", "executor", "repair", "reviewer"];
+export const ALLOWED_PROVIDERS = new Set(["google", "nvidia"]);
+const DEFAULT_PROVIDER_ORDER = {
+  planner: ["google", "nvidia"],
+  executor: ["nvidia", "google"],
+  repair: ["nvidia", "google"],
+  reviewer: ["google", "nvidia"]
+};
 
-// Роутер выбирает первую доступную модель каждой роли. Исполнитель ограничен
-// явным allowlist ролей: quota-sensitive planner models не становятся fallback.
+// Роутер выбирает первую доступную модель роли только из Gemini/NVIDIA.
 export const DEFAULT_MODELS = [
   {
     id: "google/gemini-3.1-flash-lite",
     label: "Gemini 3.1 Flash-Lite",
     provider: "google",
-    roles: ["planner"],
+    roles: ["planner", "executor", "repair", "reviewer"],
     context: 1_048_576,
     output: 65_536,
     tpm: 250_000,
     cost: { input: 0.1, output: 0.4 },
-    notes: "быстрый planner; не используется для реализации и ремонта по умолчанию"
-  },
-  {
-    id: "xerosharc/claude-haiku-5-5",
-    label: "Claude Haiku 5.5 (XEROSHARC)",
-    provider: "xerosharc",
-    roles: ["planner", "reviewer"],
-    context: 1_000_000,
-    output: 128_000,
-    tpm: 200_000,
-    cost: { input: 1, output: 5 },
-    notes: "быстрая модель для планирования и независимого ревью через шлюз"
-  },
-  {
-    id: "xerosharc/claude-sonnet-5-5",
-    label: "Claude Sonnet 5.5 (XEROSHARC)",
-    provider: "xerosharc",
-    roles: ["planner", "executor", "repair", "reviewer"],
-    context: 1_000_000,
-    output: 128_000,
-    tpm: 200_000,
-    cost: { input: 3, output: 15 },
-    notes: "основной исполнитель и repair-модель; также доступна planner/reviewer fallback"
+    notes: "Gemini Flash-Lite; planner/reviewer first choice and fallback for implementation"
   },
   {
     id: "nvidia/nemotron-3-ultra-550b-a55b",
@@ -62,21 +45,7 @@ export const DEFAULT_MODELS = [
     tpm: 250_000,
     cost: { input: 0, output: 0 },
     optional: true,
-    notes: "NVIDIA NIM; включается при NVIDIA_API_KEY"
-  },
-  {
-    id: "openrouter/baidu/ernie-5.5-flash-preview:free",
-    label: "ERNIE 5.5 Flash Preview (OpenRouter free)",
-    provider: "openrouter",
-    roles: ["planner", "reviewer"],
-    context: 256_000,
-    output: 32_000,
-    tpm: 250_000,
-    cost: { input: 0, output: 0 },
-    optional: true,
-    dailyLimit: 2,
-    dailyLimitEnv: "FA_OPENROUTER_ERNIE_DAILY_LIMIT",
-    notes: "редкий fallback; максимум два запроса в UTC-сутки"
+    notes: "NVIDIA NIM; executor/repair first choice and independent reviewer for Gemini"
   }
 ];
 
@@ -91,12 +60,7 @@ const PROVIDER_KEYS = {
     "GOOGLE_GENERATIVE_AI_API_KEY",
     "GOOGLE_API_KEY"
   ],
-  openai: ["OPENAI_API_KEY"],
-  openrouter: ["OPENROUTER_API_KEY"],
-  opencode: ["OPENCODE_API_KEY"],
-  xerosharc: ["XEROSHARC_API_KEY"],
-  nvidia: ["NVIDIA_API_KEY", "NVIDIA_NIM_API_KEY"],
-  deepseek: ["DEEPSEEK_API_KEY"]
+  nvidia: ["NVIDIA_API_KEY", "NVIDIA_NIM_API_KEY"]
 };
 
 const FREE_MODEL_RE = /^opencode\/[^#]*-free(?:#.*)?$/i;
@@ -153,9 +117,12 @@ export function parseModels(value) {
 }
 
 function availableFilter(env) {
-  const allow = new Set(splitList(env.FA_AVAILABLE_MODELS));
+  const allow = new Set(
+    splitList(env.FA_AVAILABLE_MODELS).filter((id) => ALLOWED_PROVIDERS.has(providerOf(id)))
+  );
   const deny = new Set(splitList(env.FA_EXCLUDE_MODELS));
   return (model) => {
+    if (!ALLOWED_PROVIDERS.has(model.provider || providerOf(model.id))) return false;
     if (deny.has(model.id)) return false;
     if (allow.size > 0 && !allow.has(model.id)) return false;
     if (model.optional && env.FA_ALLOW_OPTIONAL === "false") return false;
@@ -169,11 +136,13 @@ function availableFilter(env) {
  */
 export function modelChain(env = process.env) {
   const configured = parseModels(env.FA_MODELS);
-  const models = configured.length > 0 ? configured : DEFAULT_MODELS.map((model) => ({ ...model }));
   const filter = availableFilter(env);
+  const allowedConfigured = configured.filter(filter);
+  const models = allowedConfigured.length > 0
+    ? allowedConfigured
+    : DEFAULT_MODELS.map((model) => ({ ...model })).filter(filter);
 
   return models
-    .filter(filter)
     .map((model) => ({
       ...model,
       available: hasProviderKey(model.id, env),
@@ -191,14 +160,13 @@ export function modelLabel(env = process.env) {
 
 /**
  * Модели роли. Если явная переменная роли пуста, берём модели с этой ролью.
- * Для executor fallback за пределы явно назначенных исполнителей запрещён.
- * Остальные роли могут использовать общую цепочку, когда для них не задана
- * ни одна доступная модель.
+ * Невалидные/удалённые из allowlist role-переопределения не блокируют запуск:
+ * используется стандартный маршрут только через разрешённых провайдеров.
  */
-export function modelsForRole(role, env = process.env, { fallback = role !== "executor" } = {}) {
+export function modelsForRole(role, env = process.env, { fallback = true } = {}) {
   const explicit = splitList(env[`FA_${String(role).toUpperCase()}_MODEL`]);
   if (explicit.length > 0) {
-    return parseModels(explicit.join(","))
+    const selected = parseModels(explicit.join(","))
       .filter(availableFilter(env))
       .map((model) => ({
         ...model,
@@ -207,9 +175,15 @@ export function modelsForRole(role, env = process.env, { fallback = role !== "ex
         keyNames: providerKeys(model.provider)
       }))
       .filter((model) => model.available);
+    if (selected.length > 0) return selected;
   }
 
   const base = availableModels(env).map((model) => ({ ...model, role }));
+  const configuredModels = parseModels(env.FA_MODELS).filter(availableFilter(env));
+  if (configuredModels.length === 0) {
+    const order = DEFAULT_PROVIDER_ORDER[role] || [];
+    base.sort((left, right) => order.indexOf(left.provider) - order.indexOf(right.provider));
+  }
   const preferred = base.filter((model) => Array.isArray(model.roles) && model.roles.includes(role));
   if (preferred.length > 0 || !fallback) return preferred;
 
@@ -275,45 +249,6 @@ export function estimateTokens(chars) {
   return Math.ceil(Math.max(0, Number(chars) || 0) / 4);
 }
 
-/**
- * Пробует получить список ID у OpenAI-совместимого шлюза.
- * Ключ никогда не логируется и не возвращается.
- */
-export async function probeGatewayModels({
-  baseURL = process.env.FA_GATEWAY_URL || "https://xerosharc.site/v1",
-  apiKey = process.env.XEROSHARC_API_KEY || "",
-  timeoutMs = 15_000,
-  fetchImpl = globalThis.fetch
-} = {}) {
-  if (!apiKey || typeof fetchImpl !== "function") {
-    return { ok: false, reason: "no gateway key", ids: [] };
-  }
-
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    const response = await fetchImpl(`${baseURL.replace(/\/$/, "")}/models`, {
-      headers: { authorization: `Bearer ${apiKey}` },
-      signal: controller.signal
-    });
-    clearTimeout(timer);
-
-    if (!response.ok) {
-      return { ok: false, reason: `HTTP ${response.status}`, ids: [] };
-    }
-
-    const payload = await response.json();
-    const ids = (Array.isArray(payload?.data) ? payload.data : Array.isArray(payload?.models) ? payload.models : [])
-      .map((item) => (typeof item === "string" ? item : item?.id))
-      .filter(Boolean)
-      .map((id) => (id.includes("/") ? id : `xerosharc/${id}`));
-
-    return { ok: true, ids: [...new Set(ids)] };
-  } catch (error) {
-    return { ok: false, reason: error?.name === "AbortError" ? "timeout" : error.message, ids: [] };
-  }
-}
-
 /** Список моделей, который видит установленный OpenCode (V2: `opencode models`). */
 export function probeOpenCodeModels({ bin = process.env.FA_OPENCODE_BIN || "opencode", timeoutMs = 60_000 } = {}) {
   const result = spawnSync(bin, ["models"], { encoding: "utf8", timeout: timeoutMs });
@@ -358,9 +293,6 @@ export function roleSummary(env = process.env) {
 }
 
 export const CROSS_VENDOR_PAIRS = [
-  ["google", "anthropic"],
-  ["google", "xerosharc"],
-  ["xerosharc", "google"],
-  ["opencode", "google"],
-  ["opencode", "xerosharc"]
+  ["google", "nvidia"],
+  ["nvidia", "google"]
 ];

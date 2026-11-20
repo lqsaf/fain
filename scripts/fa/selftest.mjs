@@ -57,14 +57,12 @@ check("models.classify", () => {
 check("models.defaults", () => {
   const ids = DEFAULT_MODELS.map((model) => model.id);
   assert(ids.some((id) => id.startsWith("google/")), "Gemini is missing from defaults");
-  assert(ids.includes("xerosharc/claude-haiku-5-5"), "XEROSHARC Haiku is missing from defaults");
-  assert(ids.includes("xerosharc/claude-sonnet-5-5"), "XEROSHARC Sonnet is missing from defaults");
-  assert(ids.includes("openrouter/baidu/ernie-5.5-flash-preview:free"), "OpenRouter ERNIE is missing from defaults");
   assert(ids.includes("nvidia/nemotron-3-ultra-550b-a55b"), "active NVIDIA Nemotron model is missing from defaults");
+  assert(DEFAULT_MODELS.every((model) => ["google", "nvidia"].includes(model.provider)), "a disallowed provider remains in defaults");
   assert(!ids.some((id) => id.includes("deepseek-v4.1-flash")), "retired NVIDIA DeepSeek model remains enabled");
   const opencodeConfig = readFileSync(join(ROOT, "opencode.jsonc"), "utf8");
   assert(opencodeConfig.includes('"modelID": "nvidia/nemotron-3-ultra-550b-a55b"'), "NVIDIA provider does not send its required API model ID");
-  assert(DEFAULT_MODELS.find((model) => model.id === "openrouter/baidu/ernie-5.5-flash-preview:free")?.dailyLimit === 2, "OpenRouter ERNIE daily limit must default to two calls");
+  assert(!opencodeConfig.includes("xerosharc") && !opencodeConfig.includes("openrouter"), "removed providers remain configured");
   assert(!ids.some((id) => id.startsWith("opencode/") || id.startsWith("anthropic/")), "unconfigured free/direct provider remains in defaults");
   assert(!ids.some((id) => id.includes("deepseek-v4.1-flash-free")), "unverified OpenCode DeepSeek free model remains enabled");
 });
@@ -85,29 +83,52 @@ check("execution.deadline", () => {
 check("models.roles", () => {
   const roles = roleSummary({
     ...process.env,
+    FA_MODELS: "",
+    FA_PLANNER_MODEL: "",
+    FA_EXECUTOR_MODEL: "",
+    FA_REPAIR_MODEL: "",
+    FA_REVIEWER_MODEL: "",
     FA_AVAILABLE_MODELS: "",
     FA_EXCLUDE_MODELS: "",
+    FA_ALLOW_OPTIONAL: "",
     GEMINI_API_KEY: "test-key",
-    XEROSHARC_API_KEY: "test-key"
+    GOOGLE_GENERATIVE_AI_API_KEY: "",
+    GOOGLE_API_KEY: "",
+    NVIDIA_API_KEY: "test-key"
   });
   for (const role of ["planner", "executor", "repair", "reviewer"]) {
     assert(Array.isArray(roles[role]) && roles[role].length > 0, `${role} has no models`);
   }
   assert(roleCandidates("reviewer", {
-    env: { ...process.env, FA_AVAILABLE_MODELS: "", GEMINI_API_KEY: "test-key", XEROSHARC_API_KEY: "test-key" }
+    env: {
+      ...process.env,
+      FA_MODELS: "",
+      FA_REVIEWER_MODEL: "",
+      FA_AVAILABLE_MODELS: "",
+      FA_EXCLUDE_MODELS: "",
+      FA_ALLOW_OPTIONAL: "",
+      GEMINI_API_KEY: "test-key",
+      GOOGLE_GENERATIVE_AI_API_KEY: "",
+      GOOGLE_API_KEY: "",
+      NVIDIA_API_KEY: "test-key"
+    }
   }).length > 0, "no reviewer candidates");
   const independent = roleCandidates("reviewer", {
     env: {
       ...process.env,
       FA_AVAILABLE_MODELS: "",
       FA_EXCLUDE_MODELS: "",
-      FA_MODELS: "google/gemini-3.1-flash-lite,xerosharc/claude-haiku-5-5",
+      FA_REVIEWER_MODEL: "",
+      FA_ALLOW_OPTIONAL: "",
+      FA_MODELS: "google/gemini-3.1-flash-lite,nvidia/nemotron-3-ultra-550b-a55b",
       GEMINI_API_KEY: "test-key",
-      XEROSHARC_API_KEY: "test-key"
+      GOOGLE_GENERATIVE_AI_API_KEY: "",
+      GOOGLE_API_KEY: "",
+      NVIDIA_API_KEY: "test-key"
     },
     exclude: ["google/gemini-3.1-flash-lite"]
   });
-  assert(independent.length === 1 && independent[0].id === "xerosharc/claude-haiku-5-5", "review exclusion did not remove the planner model");
+  assert(independent.length === 1 && independent[0].id === "nvidia/nemotron-3-ultra-550b-a55b", "review exclusion did not select the independent provider");
 });
 
 check("models.executor-default", () => {
@@ -117,20 +138,36 @@ check("models.executor-default", () => {
     FA_EXECUTOR_MODEL: "",
     FA_AVAILABLE_MODELS: "",
     FA_EXCLUDE_MODELS: "",
+    FA_ALLOW_OPTIONAL: "",
     GEMINI_API_KEY: "test-key",
-    XEROSHARC_API_KEY: "test-key",
+    GOOGLE_GENERATIVE_AI_API_KEY: "",
+    GOOGLE_API_KEY: "",
     NVIDIA_API_KEY: "test-key"
   };
   const executorIds = modelsForRole("executor", env).map((model) => model.id);
-  assert(executorIds[0] === "xerosharc/claude-sonnet-5-5", "Sonnet is not the default executor");
-  assert(executorIds.includes("nvidia/nemotron-3-ultra-550b-a55b"), "Nemotron is missing as executor fallback");
-  assert(!executorIds.some((id) => id.startsWith("google/")), "Gemini can still be selected as the default executor");
-  const geminiOnly = modelsForRole("executor", {
+  assert(executorIds[0] === "nvidia/nemotron-3-ultra-550b-a55b", "NVIDIA is not the default executor");
+  assert(executorIds[1] === "google/gemini-3.1-flash-lite", "Gemini is missing as executor fallback");
+  assert(modelsForRole("repair", env)[0]?.provider === "nvidia", "NVIDIA is not the default repair model");
+  assert(modelsForRole("planner", env)[0]?.provider === "google", "Gemini is not the default planner");
+  assert(modelsForRole("reviewer", env)[0]?.provider === "google", "Gemini is not the default reviewer");
+  const legacy = modelsForRole("executor", {
     ...env,
-    XEROSHARC_API_KEY: "",
-    NVIDIA_API_KEY: ""
+    FA_MODELS: "xerosharc/claude-sonnet-5-5,openrouter/baidu/ernie-5.5-flash-preview:free"
   });
-  assert(geminiOnly.length === 0, "executor fell back to Gemini when no configured executor was available");
+  assert(legacy.map((model) => model.id).join(",") === executorIds.join(","), "legacy provider settings did not fall back to allowed defaults");
+  const staleProbe = modelsForRole("executor", {
+    ...env,
+    FA_MODELS: "",
+    FA_AVAILABLE_MODELS: "xerosharc/claude-sonnet-5-5"
+  });
+  assert(staleProbe.map((model) => model.id).join(",") === executorIds.join(","), "stale provider probe blocked allowed defaults");
+  const legacyOverride = modelsForRole("executor", {
+    ...env,
+    FA_EXECUTOR_MODEL: "xerosharc/claude-sonnet-5-5"
+  });
+  assert(legacyOverride.map((model) => model.id).join(",") === executorIds.join(","), "legacy executor override blocked allowed defaults");
+  const geminiOnly = modelsForRole("executor", { ...env, NVIDIA_API_KEY: "", NVIDIA_NIM_API_KEY: "" });
+  assert(geminiOnly.length === 1 && geminiOnly[0].id === "google/gemini-3.1-flash-lite", "Gemini was not used when NVIDIA is unavailable");
 });
 
 check("state.blocked-run-fails", () => {
@@ -148,53 +185,6 @@ check("router.ledger", () => {
   assert(ledger.waitMs(model, 500) > 0, "rate wait should be positive");
   now += 61_000;
   assert(ledger.waitMs(model, 500) === 0, "rate window did not expire");
-});
-
-await checkAsync("router.daily-cap", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "fa-daily-calls-"));
-  let now = Date.UTC(2026, 10, 20, 12);
-  const modelId = "openrouter/baidu/ernie-5.5-flash-preview:free";
-  const env = {
-    ...process.env,
-    FA_MODELS: modelId,
-    FA_OPENROUTER_ERNIE_DAILY_LIMIT: "2",
-    FA_ROUTER_STATE_DIR: join(dir, "state"),
-    OPENROUTER_API_KEY: "test-openrouter-key"
-  };
-  try {
-    const options = { env, root: dir, now: () => now, tokenBudget: 10_000 };
-    const session = new ModelSession(options);
-    for (let call = 0; call < 2; call += 1) {
-      const reservation = await session.reserve("planner", { estimateTokens: 100, maxWaitMs: 0 });
-      assert(reservation.ok && reservation.model.id === modelId, `daily model call ${call + 1} was not reserved`);
-      session.settle(reservation.reservation, { actualTokens: 100 });
-    }
-    const restored = new ModelSession(options);
-    const capped = await restored.reserve("planner", { estimateTokens: 100, maxWaitMs: 0 });
-    assert(!capped.ok, "daily limit allowed a third request");
-    assert(restored.dailyCalls.used({ id: modelId }, now) === 2, "daily request count did not persist");
-    now += 86_400_000;
-    const nextDay = await restored.reserve("planner", { estimateTokens: 100, maxWaitMs: 0 });
-    assert(nextDay.ok, "daily request limit did not reset on the next UTC day");
-    const disabled = new ModelSession({
-      ...options,
-      env: { ...env, FA_OPENROUTER_ERNIE_DAILY_LIMIT: "0", FA_ROUTER_STATE_DIR: join(dir, "disabled") }
-    });
-    assert(!(await disabled.reserve("planner", { estimateTokens: 100, maxWaitMs: 0 })).ok, "zero daily limit did not disable the model");
-    const invalid = new ModelSession({
-      ...options,
-      env: { ...env, FA_OPENROUTER_ERNIE_DAILY_LIMIT: "two", FA_ROUTER_STATE_DIR: join(dir, "invalid") }
-    });
-    let invalidLimitError = "";
-    try {
-      await invalid.reserve("planner", { estimateTokens: 100, maxWaitMs: 0 });
-    } catch (error) {
-      invalidLimitError = error.message;
-    }
-    assert(invalidLimitError.includes("must be a non-negative integer"), "invalid daily limit was not reported");
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
 });
 
 check("router.breaker", () => {

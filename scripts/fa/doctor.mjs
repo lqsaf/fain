@@ -10,7 +10,6 @@ import { BASE_BRANCH, BRANCH, LIMITS, OPENCODE_BIN, PATHS, ROOT, isCi } from "./
 import {
   availableModels,
   modelChain,
-  probeGatewayModels,
   probeOpenCodeModels,
   roleSummary
 } from "./models.mjs";
@@ -72,17 +71,15 @@ export async function probeModels({ env = process.env, useCache = true } = {}) {
   }
 
   const opencode = probeOpenCodeModels({ bin: env.FA_OPENCODE_BIN || OPENCODE_BIN });
-  const gateway = await probeGatewayModels({ apiKey: env.XEROSHARC_API_KEY || "" });
-  const ids = [...new Set([...(opencode.ids || []), ...(gateway.ids || [])])];
-  const source = [opencode.ok ? "opencode" : "", gateway.ok ? "gateway" : ""].filter(Boolean).join("+") || "none";
+  const ids = [...new Set(opencode.ids || [])];
+  const source = opencode.ok ? "opencode" : "none";
   if (ids.length > 0) saveProbeCache(ids, source);
   return {
-    ok: opencode.ok || gateway.ok,
+    ok: opencode.ok,
     cached: false,
     ids,
     source,
-    opencode: { ok: opencode.ok, reason: opencode.reason || "" },
-    gateway: { ok: gateway.ok, reason: gateway.reason || "" }
+    opencode: { ok: opencode.ok, reason: opencode.reason || "" }
   };
 }
 

@@ -5,7 +5,7 @@ FA живёт в GitHub Actions и не требует ноутбука. Это�
 ## Что нужно один раз
 
 1. **Ключи провайдеров.** `Settings → Secrets and variables → Actions → New repository secret`.
-   Для стандартного исполнителя нужен `XEROSHARC_API_KEY`; `GEMINI_API_KEY` включает Gemini как основной planner. Для ротации Gemini можно добавить `GEMINI_API_KEY_2` … `_5`. NVIDIA NIM подключается через `NVIDIA_API_KEY` или `NVIDIA_NIM_API_KEY` и является fallback для executor/repair. Для редкого fallback ERNIE добавьте `OPENROUTER_API_KEY`.
+   Добавьте хотя бы один `GEMINI_API_KEY` (planner/reviewer и fallback для executor/repair) и `NVIDIA_API_KEY` либо `NVIDIA_NIM_API_KEY` (основной executor/repair). Для ротации Gemini можно добавить `GEMINI_API_KEY_2` … `_5`.
    Если ключа провайдера нет, его модели пропускаются; preflight требует хотя бы одну доступную модель на каждую роль.
 2. **Модели.** В `Actions → FA → Run workflow` можно отдельно выбрать planner, executor, repair и reviewer; `inherit` использует repo variables `FA_PLANNER_MODEL`, `FA_EXECUTOR_MODEL`, `FA_REPAIR_MODEL`, `FA_REVIEWER_MODEL`, а если они не заданы — стандартный роутинг. Расписание cron использует repo variables и стандартный роутинг. `FA_MODELS` остаётся общим списком fallback.
 3. **Права.** В `Settings → Actions → General → Workflow permissions` разрешить `Read and write permissions`.
@@ -21,13 +21,11 @@ FA живёт в GitHub Actions и не требует ноутбука. Это�
 
 | Переменная | По умолчанию | Смысл |
 | --- | --- | --- |
-| `FA_MODELS` | пусто, стандартный список из кода | общий упорядоченный список моделей |
+| `FA_MODELS` | пусто, стандартный список из кода | общий упорядоченный список моделей; провайдеры вне Google/NVIDIA отфильтровываются |
 | `FA_PLANNER_MODEL` | пусто | предпочтение моделей планировщика |
 | `FA_EXECUTOR_MODEL` | пусто | предпочтение моделей исполнителя |
 | `FA_REPAIR_MODEL` | пусто | предпочтение моделей ремонта |
 | `FA_REVIEWER_MODEL` | пусто | предпочтение моделей независимого ревью |
-| `FA_MODELS` | пусто | общий ordered fallback-список моделей |
-| `FA_OPENROUTER_ERNIE_DAILY_LIMIT` | `2` | максимум запросов OpenRouter ERNIE Preview за UTC-сутки |
 | `FA_ENABLED` | включено | глобальный выключатель |
 | `FA_TASK_TIMEOUT_MIN` | `25` | таймаут одной задачи |
 | `FA_RUN_BUDGET_MIN` | `90` | бюджет времени запуска |
@@ -38,9 +36,7 @@ FA живёт в GitHub Actions и не требует ноутбука. Это�
 
 Секреты и переменные не хранятся в репозитории. В `.env` и `.dev.vars` FA не заглядывает.
 
-При `inherit` стандартный маршрут использует Gemini Flash-Lite только для планирования; XEROSHARC Sonnet — для реализации и ремонта, NVIDIA Nemotron — fallback. Если оба исполнителя недоступны, запуск остановится, а не потратит Gemini-квоту на реализацию. Явно выбранный `FA_EXECUTOR_MODEL` переопределяет этот маршрут.
-
-OpenRouter ERNIE (`openrouter/baidu/ernie-5.5-flash-preview:free`) доступна только для планирования и ревью и ограничена двумя запросами за UTC-сутки по умолчанию. Для неё harness использует одношаговый профиль без инструментов: один вызов модели равен одному API-запросу. Счётчик хранится в Actions Cache; при достижении лимита router пропускает модель и продолжает обычный fallback. Лимит можно задать переменной `FA_OPENROUTER_ERNIE_DAILY_LIMIT` (например, `1`).
+При `inherit` стандартный маршрут предпочитает Gemini Flash-Lite для планирования и ревью, NVIDIA Nemotron — для реализации и ремонта. Обе модели доступны в fallback-цепочках всех ролей. Явно выбранный `FA_*_MODEL` меняет предпочтение только в пределах разрешённых провайдеров; старые XEROSHARC/OpenRouter значения автоматически пропускаются.
 
 В NVIDIA NIM настроен `nvidia/nemotron-3-ultra-550b-a55b`. Выбор в ручной форме workflow сбрасывает сохранённые auth-breakers, чтобы после исправления/замены ключа провайдер сразу перепроверился; расписание не сбрасывает breakers.
 

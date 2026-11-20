@@ -62,7 +62,7 @@ FA не может их менять. Изменения делает челов
 
 ## Секреты
 
-- Только GitHub Secrets: `GEMINI_API_KEY` … `GEMINI_API_KEY_5` (Gemini), `XEROSHARC_API_KEY` (Claude через gateway), `OPENROUTER_API_KEY` (опциональная редкая ERNIE Preview), `NVIDIA_API_KEY`/`NVIDIA_NIM_API_KEY` (опционально), опционально `FA_PAT`.
+- Только GitHub Secrets: `GEMINI_API_KEY` … `GEMINI_API_KEY_5` (Gemini), `NVIDIA_API_KEY`/`NVIDIA_NIM_API_KEY` (NVIDIA NIM), опционально `FA_PAT`.
 - `.dev.vars`, `.env` — в `.gitignore`, чтение агентом запрещено.
 - Ключи не попадают в `TASKS.md`, логи, PR body, issue.
 - При подозрении на утечку: отозвать ключ, удалить artifact, проверить diff, инцидент.

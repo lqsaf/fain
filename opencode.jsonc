@@ -35,39 +35,6 @@
         "chunkTimeout": 300000
       }
     },
-    "xerosharc": {
-      "name": "XEROSHARC gateway",
-      "env": ["XEROSHARC_API_KEY"],
-      "package": "@opencode/ai/providers/openai-compatible",
-      "settings": {
-        "baseURL": "https://xerosharc.site/v1",
-        "apiKey": "{env:XEROSHARC_API_KEY}",
-        "headerTimeout": 300000,
-        "chunkTimeout": 300000
-      },
-      "models": {
-        "claude-haiku-5-5": {
-          "name": "Claude Haiku 5.5 (XEROSHARC)",
-          "limit": { "context": 1000000, "output": 128000 }
-        },
-        "claude-sonnet-5-5": {
-          "name": "Claude Sonnet 5.5 (XEROSHARC)",
-          "limit": { "context": 1000000, "output": 128000 }
-        },
-        "claude-opus-5-5": {
-          "name": "Claude Opus 5.5 (XEROSHARC)",
-          "limit": { "context": 1000000, "output": 128000 }
-        },
-        "gpt-5.5": {
-          "name": "GPT-5.5 (XEROSHARC)",
-          "limit": { "context": 400000, "output": 128000 }
-        },
-        "gpt-5.5-pro": {
-          "name": "GPT-5.5 Pro (XEROSHARC)",
-          "limit": { "context": 400000, "output": 128000 }
-        }
-      }
-    },
     "nvidia": {
       "name": "NVIDIA NIM",
       "env": ["NVIDIA_API_KEY", "NVIDIA_NIM_API_KEY"],
@@ -85,24 +52,6 @@
       }
     }
   },
-  "openrouter": {
-    "name": "OpenRouter",
-    "env": ["OPENROUTER_API_KEY"],
-    "package": "@opencode/ai/providers/openai-compatible",
-    "settings": {
-      "baseURL": "https://openrouter.ai/api/v1",
-      "apiKey": "{env:OPENROUTER_API_KEY}",
-      "headerTimeout": 300000,
-      "chunkTimeout": 300000
-    },
-    "models": {
-      "baidu/ernie-5.5-flash-preview:free": {
-        "name": "ERNIE 5.5 Flash Preview (free)",
-        "limit": { "context": 256000, "output": 32000 }
-      }
-    }
-  },
-
   // MCP даёт модели детерминированные инструменты: очередь, verify, diff,
   // контекст, память. Это дешевле, чем читать весь репозиторий в контекст.
   "mcp": {
