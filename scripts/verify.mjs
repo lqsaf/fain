@@ -575,8 +575,19 @@ async function checkModelRegistry() {
   for (const role of models.MODEL_ROLES) {
     if (!Array.isArray(roles[role]) || roles[role].length === 0) problems.push(`models.mjs: role ${role} is empty`);
   }
+  const nvidiaModel = models.DEFAULT_MODELS.find((model) => model.provider === "nvidia");
+  if (!nvidiaModel || nvidiaModel.id !== "nvidia/nemotron-3-ultra-550b-a55b") {
+    problems.push("models.mjs: NVIDIA NIM must use the active Nemotron model");
+  }
+  if (!read("opencode.jsonc").includes('"modelID": "nvidia/nemotron-3-ultra-550b-a55b"')) {
+    problems.push("opencode.jsonc: NVIDIA NIM modelID does not match the live API model ID");
+  }
 
   assert(models.classifyFailure("429 too many requests") === "quota", "models.mjs: quota classification is broken");
+  assert(
+    models.classifyFailure("provider.invalid-request: model reached end of life and is no longer available (410)") === "unavailable",
+    "models.mjs: retired model errors must trigger fallback"
+  );
   assert(models.classifyFailure("VERDICT: FAIL") === "other", "models.mjs: code failure must not be treated as quota");
   assert(models.classifyFailure("context_length_exceeded") === "context", "models.mjs: context classification is broken");
   assert(problems.length === 0, problems.slice(0, 12).join("; "));

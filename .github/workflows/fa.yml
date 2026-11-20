@@ -14,6 +14,45 @@ name: FA
           - once
           - stop
         default: run
+      planner_model:
+        description: "Планировщик: модель для elephant"
+        type: choice
+        options:
+          - inherit
+          - google/gemini-3.1-flash-lite
+          - xerosharc/claude-haiku-5-5
+          - xerosharc/claude-sonnet-5-5
+          - nvidia/nemotron-3-ultra-550b-a55b
+          - openrouter/baidu/ernie-5.5-flash-preview:free
+        default: inherit
+      executor_model:
+        description: "Исполнитель: модель для реализации"
+        type: choice
+        options:
+          - inherit
+          - google/gemini-3.1-flash-lite
+          - nvidia/nemotron-3-ultra-550b-a55b
+        default: inherit
+      repair_model:
+        description: "Починка: модель для исправлений"
+        type: choice
+        options:
+          - inherit
+          - google/gemini-3.1-flash-lite
+          - xerosharc/claude-haiku-5-5
+          - xerosharc/claude-sonnet-5-5
+        default: inherit
+      reviewer_model:
+        description: "Ревьюер: независимая проверка"
+        type: choice
+        options:
+          - inherit
+          - google/gemini-3.1-flash-lite
+          - xerosharc/claude-haiku-5-5
+          - xerosharc/claude-sonnet-5-5
+          - nvidia/nemotron-3-ultra-550b-a55b
+          - openrouter/baidu/ernie-5.5-flash-preview:free
+        default: inherit
 
 permissions:
   contents: write
@@ -118,10 +157,11 @@ jobs:
           # Единственное место выбора моделей — scripts/fa/models.mjs.
           # FA_MODELS (repo variable) переопределяет цепочку в формате provider/model#variant.
           FA_MODELS: ${{ vars.FA_MODELS }}
-          FA_PLANNER_MODEL: ${{ vars.FA_PLANNER_MODEL }}
-          FA_EXECUTOR_MODEL: ${{ vars.FA_EXECUTOR_MODEL }}
-          FA_REPAIR_MODEL: ${{ vars.FA_REPAIR_MODEL }}
-          FA_REVIEWER_MODEL: ${{ vars.FA_REVIEWER_MODEL }}
+          FA_PLANNER_MODEL: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.planner_model != 'inherit' && github.event.inputs.planner_model || vars.FA_PLANNER_MODEL }}
+          FA_EXECUTOR_MODEL: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.executor_model != 'inherit' && github.event.inputs.executor_model || vars.FA_EXECUTOR_MODEL }}
+          FA_REPAIR_MODEL: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.repair_model != 'inherit' && github.event.inputs.repair_model || vars.FA_REPAIR_MODEL }}
+          FA_REVIEWER_MODEL: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.reviewer_model != 'inherit' && github.event.inputs.reviewer_model || vars.FA_REVIEWER_MODEL }}
+          FA_RESET_AUTH_BREAKERS: ${{ github.event_name == 'workflow_dispatch' && 'true' || 'false' }}
           FA_ENABLED: ${{ vars.FA_ENABLED }}
           FA_TASK_TIMEOUT_MIN: ${{ vars.FA_TASK_TIMEOUT_MIN }}
           FA_RUN_BUDGET_MIN: ${{ vars.FA_RUN_BUDGET_MIN }}

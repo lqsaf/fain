@@ -24,8 +24,8 @@
 - Ровно одна задача за запуск: `loop.mjs` после первой задачи выходит. `mode=run` и `mode=once`
   эквивалентны, `once` оставлен как совместимый алиас.
 - GitHub Actions watchdog — `*/30 * * * *`, job timeout 90 минут.
-- Единый реестр моделей — `scripts/fa/models.mjs`: Gemini и XEROSHARC Claude Haiku/Sonnet включены по умолчанию; NVIDIA NIM — опционально. Непроверенные OpenCode-free и прямой Anthropic пути не включены в стандартный маршрут.
-- Переопределения — repo variables `FA_MODELS` и `FA_PLANNER_MODEL`/`FA_EXECUTOR_MODEL`/`FA_REPAIR_MODEL`/`FA_REVIEWER_MODEL`.
+- Единый реестр моделей — `scripts/fa/models.mjs`: Gemini и XEROSHARC Claude Haiku/Sonnet включены по умолчанию; NVIDIA NIM Nemotron 3 Ultra и OpenRouter ERNIE — опциональны.
+- Ручной `workflow_dispatch` также принимает per-role model choices; `inherit` сохраняет настройки repo variables `FA_MODELS` и `FA_PLANNER_MODEL`/`FA_EXECUTOR_MODEL`/`FA_REPAIR_MODEL`/`FA_REVIEWER_MODEL`.
 - Gemini secrets `GEMINI_API_KEY` … `GEMINI_API_KEY_5` ротируются при quota; Actions cache сохраняет модельное состояние, память и до пяти checkpoint-запусков.
 - `--model` передаётся только оркестратором; в `.opencode/agents/*.md` модели нет.
 - Ошибки `quota`, `auth`, `unavailable` классифицируются в `models.mjs`.

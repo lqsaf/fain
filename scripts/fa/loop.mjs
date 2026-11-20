@@ -1141,6 +1141,7 @@ async function runTask(task, { resumePhase = "" } = {}) {
       git.revertWorktree();
       const quota = /quota|rate|limit|429/i.test(outcome.reason || "");
       const result = quota ? "quota" : "unavailable";
+      state.failed = true;
       state.stopReason = quota ? "provider quota" : "provider unavailable";
       log("task.models_exhausted", {
         task: task.id,
@@ -1292,6 +1293,10 @@ async function main() {
 
   state.models = isCi() ? modelChain().filter((model) => model.available) : modelChain();
   state.session = new ModelSession({ probeIds: probe.ids || [] });
+  if (process.env.FA_RESET_AUTH_BREAKERS === "true") {
+    state.session.breaker.resetCategory("auth");
+    log("model.breakers.reset", { message: "cleared cached auth failures for manual workflow dispatch" });
+  }
   state.runId = makeRunId();
   run = runPaths(state.runId);
   log("run.start", {

@@ -77,9 +77,10 @@
         "apiKey": "{env:NVIDIA_API_KEY}"
       },
       "models": {
-        "deepseek-ai/deepseek-v4.1-flash": {
-          "name": "DeepSeek V4.1 Flash (NVIDIA)",
-          "limit": { "context": 1000000, "output": 384000 }
+        "nemotron-3-ultra-550b-a55b": {
+          "name": "Nemotron 3 Ultra 550B A55B",
+          "modelID": "nvidia/nemotron-3-ultra-550b-a55b",
+          "limit": { "context": 1000000, "output": 8192 }
         }
       }
     }

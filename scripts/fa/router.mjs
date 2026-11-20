@@ -232,6 +232,15 @@ export class Breaker {
     this.save();
   }
 
+  resetCategory(category) {
+    const remaining = Object.fromEntries(
+      Object.entries(this.entries).filter(([, entry]) => entry.category !== category)
+    );
+    if (Object.keys(remaining).length === Object.keys(this.entries).length) return;
+    this.entries = remaining;
+    this.save();
+  }
+
   snapshot(at = this.now()) {
     return Object.fromEntries(
       Object.entries(this.entries)

@@ -7,7 +7,7 @@ FA живёт в GitHub Actions и не требует ноутбука. Это�
 1. **Ключи провайдеров.** `Settings → Secrets and variables → Actions → New repository secret`.
    Для стандартного маршрута нужны `GEMINI_API_KEY` и `XEROSHARC_API_KEY`. Для ротации Gemini можно добавить `GEMINI_API_KEY_2` … `GEMINI_API_KEY_5`. NVIDIA NIM опционально включается `NVIDIA_API_KEY` или `NVIDIA_NIM_API_KEY`. Для редкого fallback ERNIE добавьте `OPENROUTER_API_KEY`.
    Если ключа провайдера нет, его модели пропускаются; preflight требует хотя бы одну доступную модель на каждую роль.
-2. **Модели.** `FA_MODELS` (Actions variable) задаёт общий список. `FA_PLANNER_MODEL`, `FA_EXECUTOR_MODEL`, `FA_REPAIR_MODEL`, `FA_REVIEWER_MODEL` задают предпочтения этапов. Например: `FA_PLANNER_MODEL=xerosharc/claude-sonnet-5-5`, `FA_EXECUTOR_MODEL=google/gemini-3.1-flash-lite`, `FA_REPAIR_MODEL=xerosharc/claude-haiku-5-5`, `FA_REVIEWER_MODEL=xerosharc/claude-sonnet-5-5`.
+2. **Модели.** В `Actions → FA → Run workflow` можно отдельно выбрать planner, executor, repair и reviewer; `inherit` использует repo variables `FA_PLANNER_MODEL`, `FA_EXECUTOR_MODEL`, `FA_REPAIR_MODEL`, `FA_REVIEWER_MODEL`, а если они не заданы — стандартный роутинг. Расписание cron использует repo variables и стандартный роутинг. `FA_MODELS` остаётся общим списком fallback.
 3. **Права.** В `Settings → Actions → General → Workflow permissions` разрешить `Read and write permissions`.
 4. **Branch protection для `main`.** Только PR, обязательный check `fa-verify`, запрет force-push и удаления. Merge делает человек.
 5. **Опционально `FA_PAT`.** Fine-grained token с правами `contents`, `pull-requests`, `issues`. Нужен, чтобы PR, созданный FA, запускал проверки: push с `GITHUB_TOKEN` не триггерит другие workflow.
@@ -26,6 +26,7 @@ FA живёт в GitHub Actions и не требует ноутбука. Это�
 | `FA_EXECUTOR_MODEL` | пусто | предпочтение моделей исполнителя |
 | `FA_REPAIR_MODEL` | пусто | предпочтение моделей ремонта |
 | `FA_REVIEWER_MODEL` | пусто | предпочтение моделей независимого ревью |
+| `FA_MODELS` | пусто | общий ordered fallback-список моделей |
 | `FA_OPENROUTER_ERNIE_DAILY_LIMIT` | `2` | максимум запросов OpenRouter ERNIE Preview за UTC-сутки |
 | `FA_ENABLED` | включено | глобальный выключатель |
 | `FA_TASK_TIMEOUT_MIN` | `25` | таймаут одной задачи |
@@ -38,6 +39,8 @@ FA живёт в GitHub Actions и не требует ноутбука. Это�
 Секреты и переменные не хранятся в репозитории. В `.env` и `.dev.vars` FA не заглядывает.
 
 OpenRouter ERNIE (`openrouter/baidu/ernie-5.5-flash-preview:free`) доступна только для планирования и ревью и ограничена двумя запросами за UTC-сутки по умолчанию. Для неё harness использует одношаговый профиль без инструментов: один вызов модели равен одному API-запросу. Счётчик хранится в Actions Cache; при достижении лимита router пропускает модель и продолжает обычный fallback. Лимит можно задать переменной `FA_OPENROUTER_ERNIE_DAILY_LIMIT` (например, `1`).
+
+В NVIDIA NIM настроен `nvidia/nemotron-3-ultra-550b-a55b`. Выбор в ручной форме workflow сбрасывает сохранённые auth-breakers, чтобы после исправления/замены ключа провайдер сразу перепроверился; расписание не сбрасывает breakers.
 
 ## Первый запуск
 

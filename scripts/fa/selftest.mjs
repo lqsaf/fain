@@ -46,6 +46,7 @@ function assert(condition, message) {
 check("models.classify", () => {
   assert(classifyFailure("429 Too Many Requests") === "quota", "429 is not quota");
   assert(classifyFailure("401 Unauthorized") === "auth", "401 is not auth");
+  assert(classifyFailure("provider.invalid-request: model reached end of life and is no longer available (410)") === "unavailable", "retired model is not classified for fallback");
   assert(classifyFailure("context_length_exceeded") === "context", "context is not classified");
   assert(classifyFailure("VERDICT: FAIL") === "other", "verdict is not a model failure");
   assert(estimateTokens(4000) === 1000, "estimateTokens is wrong");
@@ -59,6 +60,10 @@ check("models.defaults", () => {
   assert(ids.includes("xerosharc/claude-haiku-5-5"), "XEROSHARC Haiku is missing from defaults");
   assert(ids.includes("xerosharc/claude-sonnet-5-5"), "XEROSHARC Sonnet is missing from defaults");
   assert(ids.includes("openrouter/baidu/ernie-5.5-flash-preview:free"), "OpenRouter ERNIE is missing from defaults");
+  assert(ids.includes("nvidia/nemotron-3-ultra-550b-a55b"), "active NVIDIA Nemotron model is missing from defaults");
+  assert(!ids.some((id) => id.includes("deepseek-v4.1-flash")), "retired NVIDIA DeepSeek model remains enabled");
+  const opencodeConfig = readFileSync(join(ROOT, "opencode.jsonc"), "utf8");
+  assert(opencodeConfig.includes('"modelID": "nvidia/nemotron-3-ultra-550b-a55b"'), "NVIDIA provider does not send its required API model ID");
   assert(DEFAULT_MODELS.find((model) => model.id === "openrouter/baidu/ernie-5.5-flash-preview:free")?.dailyLimit === 2, "OpenRouter ERNIE daily limit must default to two calls");
   assert(!ids.some((id) => id.startsWith("opencode/") || id.startsWith("anthropic/")), "unconfigured free/direct provider remains in defaults");
   assert(!ids.some((id) => id.includes("deepseek-v4.1-flash-free")), "unverified OpenCode DeepSeek free model remains enabled");
@@ -159,6 +164,11 @@ check("router.breaker", () => {
   assert(snapshot["test/model"], "breaker snapshot is empty");
   breaker.reset("test/model");
   assert(!breaker.isOpen("test/model"), "breaker did not reset");
+  breaker.trip("test/auth", "auth", "old credential failure");
+  breaker.trip("test/quota", "quota", "rate limit");
+  breaker.resetCategory("auth");
+  assert(!breaker.isOpen("test/auth"), "auth breakers were not cleared for manual retry");
+  assert(breaker.isOpen("test/quota"), "clearing auth breakers also cleared a quota breaker");
 });
 
 check("prompts.contract", () => {
@@ -299,10 +309,16 @@ check("workflow.autonomy-contract", () => {
   assert(workflow.includes("actions/cache@v4"), "workflow does not persist runtime state");
   assert(workflow.includes("OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}"), "workflow does not expose OpenRouter credentials");
   assert(workflow.includes("fa/state/daily-calls.json"), "workflow does not persist daily model limits");
-  for (const role of ["PLANNER", "EXECUTOR", "REPAIR", "REVIEWER"]) {
-    const expression = "${{ vars.FA_" + role + "_MODEL }}";
-    assert(workflow.includes(`FA_${role}_MODEL: ${expression}`), `workflow does not expose FA_${role}_MODEL`);
+  assert(workflow.includes("FA_RESET_AUTH_BREAKERS: ${{ github.event_name == 'workflow_dispatch' && 'true' || 'false' }}"), "manual workflow dispatch does not reset cached auth breakers");
+  for (const role of ["planner", "executor", "repair", "reviewer"]) {
+    assert(workflow.includes(`${role}_model:`), `workflow dispatch is missing the ${role} model selector`);
+    const expression = `github.event.inputs.${role}_model != 'inherit' && github.event.inputs.${role}_model || vars.FA_${role.toUpperCase()}_MODEL`;
+    assert(workflow.includes(expression), `workflow does not pass the ${role} model selection through`);
   }
+  assert(workflow.includes("nvidia/nemotron-3-ultra-550b-a55b"), "workflow model selectors omit the active NVIDIA model");
+  const loop = readFileSync(join(ROOT, "scripts/fa/loop.mjs"), "utf8");
+  assert(loop.includes('state.session.breaker.resetCategory("auth")'), "manual workflow dispatch cannot clear cached auth failures");
+  assert(loop.includes("state.failed = true;\n      state.stopReason = quota ? \"provider quota\" : \"provider unavailable\";"), "unavailable model chains do not fail the workflow");
   for (const index of [2, 3, 4, 5]) {
     const expression = "${{ secrets.GEMINI_API_KEY_" + index + " }}";
     assert(workflow.includes(`GEMINI_API_KEY_${index}: ${expression}`), `workflow does not expose Gemini key ${index}`);

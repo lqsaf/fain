@@ -53,12 +53,12 @@ export const DEFAULT_MODELS = [
     notes: "дорогая модель для сложной починки и финального review"
   },
   {
-    id: "nvidia/deepseek-ai/deepseek-v4.1-flash",
-    label: "DeepSeek V4.1 Flash (NVIDIA)",
+    id: "nvidia/nemotron-3-ultra-550b-a55b",
+    label: "Nemotron 3 Ultra (NVIDIA NIM)",
     provider: "nvidia",
     roles: ["planner", "executor", "reviewer"],
     context: 1_000_000,
-    output: 384_000,
+    output: 8_192,
     tpm: 250_000,
     cost: { input: 0, output: 0 },
     optional: true,
@@ -240,7 +240,7 @@ export function classifyFailure(detail) {
   }
 
   if (
-    /overloaded|service unavailable|upstream|fetch failed|network|econn|etimedout|\b50[234]\b|invalid model reference|model not found|unknown model|no model is available/i.test(
+    /overloaded|service unavailable|upstream|fetch failed|network|econn|etimedout|\b50[234]\b|(?:\b404\b|\b410\b)|invalid model reference|model not found|unknown model|no model is available|end of life|no longer available|retired model/i.test(
       text
     )
   ) {

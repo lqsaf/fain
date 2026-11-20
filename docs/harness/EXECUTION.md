@@ -10,8 +10,10 @@
 - `concurrency: fa-loop` не даёт двум запускам работать одновременно.
 - Локальный запуск — тот же `scripts/fa/loop.mjs`, но только с `--force-local` и на чистом дереве.
 - Модели и порядок fallback задаются в `scripts/fa/models.mjs`; `FA_MODELS` задаёт общий список, а `FA_PLANNER_MODEL`, `FA_EXECUTOR_MODEL`, `FA_REPAIR_MODEL`, `FA_REVIEWER_MODEL` — роль-приоритеты.
+- Ручной `workflow_dispatch` формы FA дают выбор модели по planner/executor/repair/reviewer; `inherit` применяет repo variable или стандартный роутинг. Scheduled-запуски продолжают использовать repo variables.
 - Стандартный список не полагается на неподтверждённый бесплатный каталог OpenCode или прямой Anthropic-ключ; в нём используются Gemini и XEROSHARC, NVIDIA NIM остаётся опциональным.
 - До пяти ключей Gemini (`GEMINI_API_KEY`, `GEMINI_API_KEY_2` … `_5`) могут ротироваться после quota/rate-limit; значения секретов не выводятся в логи.
+- NVIDIA DeepSeek V4.1 Flash был удалён провайдером; текущая конфигурация NIM использует Nemotron 3 Ultra. Ответы `410`/`end of life` теперь запускают fallback вместо повторного расхода попытки на ту же модель.
 - OpenRouter ERNIE Flash Preview доступна для planner/reviewer, а не для реализации; одношаговый профиль без инструментов и persistent UTC-счётчик ограничивают её двумя API-запросами в сутки по умолчанию (`FA_OPENROUTER_ERNIE_DAILY_LIMIT`).
 
 ## Лимиты (все в коде)
