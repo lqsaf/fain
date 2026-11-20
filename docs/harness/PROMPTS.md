@@ -35,7 +35,7 @@ npm run verify
 ### Модель (уровень 2)
 
 ```bash
-npm run fa:eval -- --suite model --models anthropic/claude-haiku-4-5,google/gemini-3.1-flash-lite#low
+npm run fa:eval -- --suite model --models xerosharc/claude-haiku-5-5,google/gemini-3.1-flash-lite
 ```
 
 Замер задаёт один и тот же детерминированный вопрос по репозиторию, требует JSON-ответ и проверяет его без модели:
@@ -53,7 +53,7 @@ npm run fa:eval -- --suite model --models anthropic/claude-haiku-4-5,google/gemi
 
 | Версия | Модель | Pass | Шаги | Токены | Время |
 | --- | --- | --- | --- | --- | --- |
-| `fa-v1` / `task-v1` | `anthropic/claude-haiku-4-5` | — | — | — | — |
+| `fa-v1` / `task-v1` | `xerosharc/claude-haiku-5-5` | — | — | — | — |
 | `fa-v1` / `task-v1` | `google/gemini-3.1-flash-lite#low` | — | — | — | — |
 
 Обновлять при каждом принятом изменении промпта или модели. Значения брать из `fa/eval/<timestamp>.json`.

@@ -20,6 +20,7 @@ const JSON_OUT = ARGS.includes("--json");
 const QUIET = ARGS.includes("--quiet");
 const STRICT = ARGS.includes("--strict");
 const PROTECTED_MODE = ARGS.includes("--protected");
+const ALLOW_TASKS = ARGS.includes("--allow-tasks");
 const DIFF_INDEX = ARGS.indexOf("--diff");
 const DIFF_BASE = DIFF_INDEX >= 0 ? ARGS[DIFF_INDEX + 1] : process.env.FA_DIFF_BASE || "";
 
@@ -170,8 +171,21 @@ const REQUIRED_FILES = [
   "docs/harness/OPERATING.md",
   "docs/CONVENTIONS.md",
   ".opencode/agents/fa.md",
+  ".opencode/agents/fa-planner.md",
+  ".opencode/agents/fa-reviewer.md",
+  ".opencode/agents/fa-scarce.md",
   "scripts/verify.mjs",
-  "scripts/fa/models.mjs"
+  "scripts/fa/models.mjs",
+  "scripts/fa/router.mjs",
+  "scripts/fa/runner.mjs",
+  "scripts/fa/context.mjs",
+  "scripts/fa/memory.mjs",
+  "scripts/fa/state.mjs",
+  "scripts/fa/prompts.mjs",
+  "scripts/fa/doctor.mjs",
+  "scripts/fa/ui.mjs",
+  "scripts/fa/mcp-server.mjs",
+  "scripts/fa/selftest.mjs"
 ];
 
 const HARNESS_DOCS = [
@@ -423,9 +437,9 @@ async function checkOpencodeConfig() {
   assert(config.$schema, "opencode.jsonc: $schema is missing");
   const problems = [];
 
-  const deprecated = ["permission", "tools", "disable", "maxSteps", "prompt", "temperature", "top_p"];
+  const deprecated = ["permission", "tools", "disable", "maxSteps", "prompt", "temperature", "top_p", "provider"];
   for (const key of deprecated) {
-    if (key in config) problems.push(`deprecated top-level key "${key}"`);
+    if (key in config) problems.push(`deprecated top-level key "${key}" (use V2 schema)`);
   }
 
   if (config.permissions !== undefined) {
@@ -450,6 +464,39 @@ async function checkOpencodeConfig() {
     }
   }
 
+  if (config.providers !== undefined) {
+    assert(config.providers && typeof config.providers === "object", "providers must be an object");
+    for (const [id, provider] of Object.entries(config.providers)) {
+      if (!provider || typeof provider !== "object") {
+        problems.push(`providers.${id} is not an object`);
+        continue;
+      }
+      if (provider.npm) problems.push(`providers.${id}.npm is V1 (use package)`);
+      if (provider.options) problems.push(`providers.${id}.options is V1 (use settings)`);
+      if (provider.package && !/^(@opencode\/ai\/providers\/|[a-z0-9@][^"]*$)/.test(provider.package)) {
+        problems.push(`providers.${id}.package is invalid`);
+      }
+      if (provider.models && typeof provider.models !== "object") problems.push(`providers.${id}.models must be an object`);
+    }
+  }
+
+  if (config.mcp?.servers) {
+    for (const [name, server] of Object.entries(config.mcp.servers)) {
+      if (!server || typeof server !== "object") problems.push(`mcp.servers.${name} is not an object`);
+      else if (server.type === "local") {
+        if (!Array.isArray(server.command) || server.command.length === 0) {
+          problems.push(`mcp.servers.${name}.command must be a non-empty array`);
+        }
+      } else if (server.type === "remote") {
+        if (typeof server.url !== "string" || !/^https?:\/\//.test(server.url)) {
+          problems.push(`mcp.servers.${name}.url must be absolute`);
+        }
+      } else {
+        problems.push(`mcp.servers.${name}.type must be local or remote`);
+      }
+    }
+  }
+
   if (config.default_agent) {
     const agentFile = join(ROOT, ".opencode/agents", `${config.default_agent}.md`);
     const configAgent = config.agents && config.agents[config.default_agent];
@@ -463,15 +510,23 @@ async function checkOpencodeConfig() {
     if (!text.startsWith("---")) continue;
     const end = text.indexOf("\n---", 3);
     const frontmatter = end > 0 ? text.slice(3, end) : "";
-    for (const key of ["permission", "tools", "disable", "maxSteps"]) {
+    for (const key of ["permission", "tools", "disable", "maxSteps", "prompt", "temperature"]) {
       if (new RegExp(`^${key}:`, "m").test(frontmatter)) problems.push(`${file}: deprecated frontmatter field "${key}"`);
     }
     if (!/^description:/m.test(frontmatter)) problems.push(`${file}: missing description`);
     if (!/^mode:/m.test(frontmatter)) problems.push(`${file}: missing mode`);
+    const mode = frontmatter.match(/^mode:\s*(\S+)/m)?.[1];
+    if (mode && !["primary", "subagent", "all"].includes(mode)) problems.push(`${file}: invalid mode "${mode}"`);
+    if (!/^permissions:/m.test(frontmatter)) problems.push(`${file}: missing permissions`);
+  }
+
+  const faAgent = read(".opencode/agents/fa.md");
+  for (const marker of ["TASKS.md", "git commit", "npm install", "webfetch", "subagent"]) {
+    if (!faAgent.includes(marker)) problems.push(`fa.md does not mention boundary "${marker}"`);
   }
 
   assert(problems.length === 0, problems.slice(0, 12).join("; "));
-  return "ok";
+  return "ok (V2)";
 }
 
 async function checkModelRegistry() {
@@ -487,7 +542,7 @@ async function checkModelRegistry() {
       problems.push("models.mjs: model entry is not an object");
       continue;
     }
-    if (!/^[a-z0-9-]+\/[A-Za-z0-9._/-]+(?:#[a-z0-9-]+)?$/.test(String(model.id || ""))) {
+    if (!/^[a-z0-9-]+\/[A-Za-z0-9._:/-]+(?:#[a-z0-9-]+)?$/.test(String(model.id || ""))) {
       problems.push(`models.mjs: invalid model id "${model.id}"`);
     }
     if (ids.has(model.id)) problems.push(`models.mjs: duplicate model id "${model.id}"`);
@@ -495,12 +550,114 @@ async function checkModelRegistry() {
     if (model.provider !== models.providerOf(model.id)) {
       problems.push(`models.mjs: provider mismatch for "${model.id}"`);
     }
+    if (!Array.isArray(model.roles) || model.roles.length === 0) {
+      problems.push(`models.mjs: ${model.id} has no roles`);
+    }
+    for (const role of model.roles || []) {
+      if (!models.MODEL_ROLES.includes(role)) problems.push(`models.mjs: ${model.id} has unknown role ${role}`);
+    }
+    if (!(Number(model.tpm) > 0)) problems.push(`models.mjs: ${model.id} has no tpm limit`);
+    if (!(Number(model.context) > 0)) problems.push(`models.mjs: ${model.id} has no context limit`);
+  }
+
+  const roles = models.roleSummary({
+    ...process.env,
+    FA_MODELS: "",
+    FA_PLANNER_MODEL: "",
+    FA_EXECUTOR_MODEL: "",
+    FA_REPAIR_MODEL: "",
+    FA_REVIEWER_MODEL: "",
+    FA_AVAILABLE_MODELS: "",
+    FA_EXCLUDE_MODELS: "",
+    GEMINI_API_KEY: "verify-test-key",
+    XEROSHARC_API_KEY: "verify-test-key"
+  });
+  for (const role of models.MODEL_ROLES) {
+    if (!Array.isArray(roles[role]) || roles[role].length === 0) problems.push(`models.mjs: role ${role} is empty`);
   }
 
   assert(models.classifyFailure("429 too many requests") === "quota", "models.mjs: quota classification is broken");
   assert(models.classifyFailure("VERDICT: FAIL") === "other", "models.mjs: code failure must not be treated as quota");
+  assert(models.classifyFailure("context_length_exceeded") === "context", "models.mjs: context classification is broken");
   assert(problems.length === 0, problems.slice(0, 12).join("; "));
-  return `${models.DEFAULT_MODELS.length} models`;
+  return `${models.DEFAULT_MODELS.length} models, ${models.MODEL_ROLES.length} roles`;
+}
+
+async function checkScarceAgent() {
+  const agent = read(".opencode/agents/fa-scarce.md");
+  const runner = read("scripts/fa/runner.mjs");
+  assert(/^steps: 1$/m.test(agent), "fa-scarce agent must make at most one model turn");
+  assert(/action:\s*"\*"\s*\n\s*resource:\s*"\*"\s*\n\s*effect:\s*deny/.test(agent), "fa-scarce agent must not have tool access");
+  assert(runner.includes('model.dailyLimit ? "fa-scarce" : agent'), "runner does not select the single-turn agent for capped models");
+  return "one-turn model profile";
+}
+
+async function checkPrompts() {
+  const moduleUrl = `${pathToFileURL(join(ROOT, "scripts/fa/prompts.mjs")).href}?verify=${Date.now()}`;
+  const prompts = await import(moduleUrl);
+  const problems = prompts.validatePrompts();
+  assert(problems.length === 0, problems.join("; "));
+  for (const [name, version] of Object.entries(prompts.PROMPT_VERSIONS)) {
+    if (!/^[a-z-]+-v\d+$/.test(version)) problems.push(`${name}: invalid version ${version}`);
+  }
+  assert(problems.length === 0, problems.join("; "));
+  return `${Object.keys(prompts.PROMPT_VERSIONS).length} prompts`;
+}
+
+async function checkHarnessModules() {
+  const modules = [
+    ["router.mjs", ["ModelSession", "RateLedger", "Breaker", "roleCandidates"]],
+    ["context.mjs", ["buildContext", "contextForTask"]],
+    ["memory.mjs", ["loadMemory", "addMemory", "searchMemory"]],
+    ["state.mjs", ["createRunState", "saveCheckpoint", "canResume"]],
+    ["ui.mjs", ["runUiSmoke", "findChrome"]],
+    ["mcp-server.mjs", ["TOOLS", "callTool"]],
+    ["doctor.mjs", ["preflight", "probeModels"]]
+  ];
+  const problems = [];
+  for (const [file, exports] of modules) {
+    const moduleUrl = `${pathToFileURL(join(ROOT, "scripts/fa", file)).href}?verify=${Date.now()}`;
+    const mod = await import(moduleUrl);
+    for (const name of exports) {
+      if (!(name in mod)) problems.push(`${file}: missing export ${name}`);
+    }
+  }
+  assert(problems.length === 0, problems.join("; "));
+  return `${modules.length} modules`;
+}
+
+async function checkUiContract() {
+  const pkg = JSON.parse(read("package.json"));
+  const problems = [];
+  if (!pkg.scripts?.["verify:ui"]) problems.push("package.json: scripts.verify:ui is missing");
+  if (!pkg.scripts?.["fa:doctor"]) problems.push("package.json: scripts.fa:doctor is missing");
+  if (!pkg.scripts?.["fa:selftest"]) problems.push("package.json: scripts.fa:selftest is missing");
+  if (!pkg.scripts?.["fa:mcp"]) problems.push("package.json: scripts.fa:mcp is missing");
+  const ui = read("scripts/fa/ui.mjs");
+  if (!ui.includes("Input.dispatchMouseEvent")) problems.push("ui.mjs: clicks must go through CDP input, not just DOM .click()");
+  if (!ui.includes("setViewport")) problems.push("ui.mjs: viewport checks are missing");
+  const prompt = read("scripts/fa/prompts.mjs");
+  if (!prompt.includes("npm run verify:ui")) problems.push("prompts: verify:ui is not mentioned");
+  assert(problems.length === 0, problems.join("; "));
+  return "ok";
+}
+
+async function checkSelftest() {
+  const file = join(ROOT, "scripts/fa/selftest.mjs");
+  if (!existsSync(file)) throw new Error("scripts/fa/selftest.mjs is missing");
+  const result = spawnSync(process.execPath, [file, "--json"], {
+    cwd: ROOT,
+    encoding: "utf8",
+    timeout: 120_000
+  });
+  let parsed = null;
+  try {
+    parsed = JSON.parse(result.stdout);
+  } catch {
+    parsed = null;
+  }
+  assert(result.status === 0 && parsed?.ok, `selftest failed: ${(result.stderr || result.stdout || "").slice(0, 800)}`);
+  return `${parsed.checks?.length || 0} checks`;
 }
 
 async function checkQueue() {
@@ -541,6 +698,9 @@ async function checkQueue() {
 async function checkPackageJson() {
   const pkg = JSON.parse(read("package.json"));
   assert(pkg.scripts && pkg.scripts.verify, "package.json: scripts.verify is missing");
+  for (const script of ["verify:json", "verify:ui", "fa", "fa:doctor", "fa:preflight", "fa:status", "fa:queue", "fa:selftest", "fa:mcp"]) {
+    assert(pkg.scripts[script], `package.json: scripts.${script} is missing`);
+  }
   assert(pkg.type === "module", 'package.json: "type": "module" is required');
   if (pkg.dependencies && Object.keys(pkg.dependencies).length > 0) {
     warn("package.dependencies", "runtime dependencies appeared; the frontend is dependency-free");
@@ -586,7 +746,9 @@ async function checkDiff() {
   assert(secrets.length === 0, `possible secrets in diff: ${secrets.map((hit) => hit.name).join(", ")}`);
 
   if (PROTECTED_MODE) {
-    const protectedFiles = files.filter(isProtected);
+    const protectedFiles = files.filter(
+      (file) => isProtected(file) && !(ALLOW_TASKS && file === "TASKS.md")
+    );
     assert(
       protectedFiles.length === 0,
       `protected harness files changed: ${protectedFiles.join(", ")}`
@@ -606,6 +768,11 @@ async function main() {
   await run("feed.schema", checkFeedJson);
   await run("opencode.config", checkOpencodeConfig);
   await run("models.registry", checkModelRegistry);
+  await run("models.scarce-profile", checkScarceAgent);
+  await run("prompts.contract", checkPrompts);
+  await run("harness.modules", checkHarnessModules);
+  await run("ui.contract", checkUiContract);
+  await run("harness.selftest", checkSelftest);
   await run("queue.protocol", checkQueue);
   await run("package.json", checkPackageJson);
   await run("docs.size", checkDocsSize);

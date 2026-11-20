@@ -2,8 +2,8 @@ name: FA
 
 "on":
   schedule:
-    # Watchdog: каждые 15 минут запускает ровно одну задачу, если очередь не пуста.
-    - cron: "*/15 * * * *"
+    # Watchdog: каждые 30 минут запускает ровно одну задачу, если очередь не пуста.
+    - cron: "*/30 * * * *"
   workflow_dispatch:
     inputs:
       mode:
@@ -42,6 +42,24 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22"
+
+      - name: Prepare runtime state directories
+        run: mkdir -p fa/state/runs fa/memory
+
+      - name: Restore FA state and memory
+        uses: actions/cache@v4
+        with:
+          path: |
+            fa/state/active.json
+            fa/state/breakers.json
+            fa/state/probe.json
+            fa/state/rate.json
+            fa/state/daily-calls.json
+            fa/state/runs
+            fa/memory
+          key: fa-runtime-${{ github.ref }}-${{ github.run_id }}
+          restore-keys: |
+            fa-runtime-${{ github.ref }}-
 
       - name: Gate
         id: gate
@@ -86,16 +104,30 @@ jobs:
         env:
           CI: "true"
           GH_TOKEN: ${{ secrets.FA_PAT || secrets.GITHUB_TOKEN }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY || secrets.GEMINI_API_KEY_2 || secrets.GEMINI_API_KEY_3 || secrets.GEMINI_API_KEY_4 || secrets.GEMINI_API_KEY_5 }}
+          GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
+          GEMINI_API_KEY_3: ${{ secrets.GEMINI_API_KEY_3 }}
+          GEMINI_API_KEY_4: ${{ secrets.GEMINI_API_KEY_4 }}
+          GEMINI_API_KEY_5: ${{ secrets.GEMINI_API_KEY_5 }}
+          GOOGLE_GENERATIVE_AI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           XEROSHARC_API_KEY: ${{ secrets.XEROSHARC_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY || secrets.NVIDIA_NIM_API_KEY }}
+          NVIDIA_NIM_API_KEY: ${{ secrets.NVIDIA_NIM_API_KEY }}
           # Единственное место выбора моделей — scripts/fa/models.mjs.
           # FA_MODELS (repo variable) переопределяет цепочку в формате provider/model#variant.
           FA_MODELS: ${{ vars.FA_MODELS }}
+          FA_PLANNER_MODEL: ${{ vars.FA_PLANNER_MODEL }}
+          FA_EXECUTOR_MODEL: ${{ vars.FA_EXECUTOR_MODEL }}
+          FA_REPAIR_MODEL: ${{ vars.FA_REPAIR_MODEL }}
+          FA_REVIEWER_MODEL: ${{ vars.FA_REVIEWER_MODEL }}
           FA_ENABLED: ${{ vars.FA_ENABLED }}
           FA_TASK_TIMEOUT_MIN: ${{ vars.FA_TASK_TIMEOUT_MIN }}
           FA_RUN_BUDGET_MIN: ${{ vars.FA_RUN_BUDGET_MIN }}
           FA_MAX_ATTEMPTS: ${{ vars.FA_MAX_ATTEMPTS }}
           FA_TOKEN_BUDGET: ${{ vars.FA_TOKEN_BUDGET }}
+          FA_OPENROUTER_ERNIE_DAILY_LIMIT: ${{ vars.FA_OPENROUTER_ERNIE_DAILY_LIMIT }}
           FA_MAX_INFRA_FAILURES: ${{ vars.FA_MAX_INFRA_FAILURES }}
         run: |
           set -euo pipefail

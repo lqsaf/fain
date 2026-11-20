@@ -2,7 +2,7 @@
 
 **FA (free agent)** — обвязка вокруг модели, которая позволяет проекту развиваться без человека и без его ноутбука. Человек пишет задачи в `TASKS.md` и ревьюит PR; FA берёт ровно одну задачу, проверяет себя и складывает результат в ветку `fa/work`.
 
-Один запуск = одна задача. Watchdog каждые 15 минут поднимает новый запуск, если очередь не пуста и нет стоп-сигнала. Если модель упёрлась в квоту, оркестратор переключается на следующую из `FA_MODELS` в том же запуске. После коммита или блокировки задача завершается, job выходит.
+Один запуск = одна задача. Watchdog каждые 30 минут поднимает новый запуск, если очередь не пуста и нет стоп-сигнала. Если модель упёрлась в квоту, оркестратор переключается на следующий ключ Gemini или доступную модель. После коммита или блокировки задача завершается, job выходит.
 
 ## Семь слоёв (ETCLOVG)
 
@@ -12,7 +12,7 @@
 | --- | --- | --- |
 | **E** Execution | где и в каких рамках исполняется агент | `.github/workflows/fa.yml`, `scripts/fa/loop.mjs`, лимиты в `scripts/fa/config.mjs` |
 | **T** Tools | инструменты, схемы, контракт ошибок | `scripts/verify.mjs`, `scripts/fa/*.mjs`, `.opencode/commands/*`, allowlist в `policy.mjs` |
-| **C** Context | что видит модель: короткий, сессионный и постоянный контекст | `AGENTS.md`, `docs/CONVENTIONS.md`, `.opencode/skills/fain/SKILL.md`, `TASKS.md`, compaction в `opencode.jsonc` |
+| **C** Context | что видит модель: короткий, сессионный и постоянный контекст | `AGENTS.md`/`CLAUDE.md` по пути задачи, `docs/CONVENTIONS.md`, `.opencode/skills/fain/SKILL.md`, `TASKS.md`, compaction в `opencode.jsonc` |
 | **L** Lifecycle | оркестрация, state machine, задача → PR | `scripts/fa/loop.mjs`, `scripts/fa/queue.mjs`, `.opencode/agents/fa.md`, ветка `fa/work` |
 | **O** Observability | логи, метрики, детект плохих циклов, алерты | `scripts/fa/metrics.mjs`, `scripts/fa/report.mjs`, `fa/logs/`, artifacts, `fa/STATUS.md` |
 | **V** Verification | инварианты, замеры, человек; model-as-judge | `scripts/verify.mjs`, `scripts/fa/eval.mjs`, `.opencode/agents/fa-reviewer.md`, PR review |
@@ -38,7 +38,7 @@
 ## Как это работает
 
 ```text
-watchdog (каждые 15 мин, если FA_ENABLED)
+watchdog (каждые 30 мин, если FA_ENABLED)
         │
         ▼
 gate: есть задачи? не остановлено?
@@ -69,6 +69,8 @@ npm run fa             # одна задача локально
 npm run fa:once        # то же самое, явный алиас
 npm run fa:status      # состояние очереди
 ```
+
+После трёх повторных сбоев одного типа в разных задачах FA создаёт дедуплицированное issue-предложение для улучшения harness; активная очередь `TASKS.md` остаётся под контролем владельца.
 
 Остановить: repo variable `FA_ENABLED=false`, файл `FA_STOP` в корне или `workflow_dispatch` с `mode=stop`.
 

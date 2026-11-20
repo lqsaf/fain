@@ -21,7 +21,7 @@
 
 Построить FA (free agent) как harness вокруг OpenCode:
 
-- **Execution**: GitHub Actions, один job до ~5 ч 50 мин, watchdog каждые 15 минут, `concurrency: fa-loop`, лимиты в коде.
+- **Execution**: GitHub Actions, один job до ~5 ч 50 мин, изначальный watchdog каждые 15 минут (расписание изменено на 30 минут решением ADR 0002), `concurrency: fa-loop`, лимиты в коде.
 - **Tools**: детерминированные скрипты на Node stdlib, единый контракт exit 0/1/2, allowlist shell-команд.
 - **Context**: `AGENTS.md` + `docs/CONVENTIONS.md` + контекст задачи + skill `fain`, компакция и лимиты вывода.
 - **Lifecycle**: очередь `TASKS.md`, ветка `fa/work`, rolling PR в `main`, откат при провале, `[!]` после лимита попыток.

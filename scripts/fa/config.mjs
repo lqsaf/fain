@@ -8,16 +8,19 @@ import { fileURLToPath } from "node:url";
 export const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 export const BRANCH = process.env.FA_BRANCH || "fa/work";
 export const BASE_BRANCH = process.env.FA_BASE_BRANCH || "main";
-export const AGENT = "fa";
-export const REVIEWER_AGENT = "fa-reviewer";
+export const AGENT = process.env.FA_AGENT || "fa";
+export const PLANNER_AGENT = process.env.FA_PLANNER_AGENT || "fa-planner";
+export const REVIEWER_AGENT = process.env.FA_REVIEWER_AGENT || "fa-reviewer";
 export const OPENCODE_BIN = process.env.FA_OPENCODE_BIN || "opencode";
-export const PROMPT_VERSION = "task-v1";
-export const AGENT_PROMPT_VERSION = "fa-v1";
+export const PROMPT_VERSION = "task-v2";
+export const AGENT_PROMPT_VERSION = "fa-v2";
 
 export const PATHS = {
   logs: join(ROOT, "fa/logs"),
   state: join(ROOT, "fa/state"),
-  eval: join(ROOT, "fa/eval")
+  eval: join(ROOT, "fa/eval"),
+  memory: join(ROOT, "fa/memory"),
+  tmp: join(ROOT, "fa/tmp")
 };
 
 function readNumber(name, fallback) {
@@ -30,14 +33,40 @@ function readNumber(name, fallback) {
   return value;
 }
 
+function readFlag(name, fallback = false) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === "") return fallback;
+  return !/^(0|false|no|off)$/i.test(String(raw).trim());
+}
+
 export const LIMITS = {
   taskTimeoutMs: readNumber("FA_TASK_TIMEOUT_MIN", 25) * 60_000,
-  // Один запуск — ровно одна задача. 90 минут хватает на две попытки и review.
+  // Один запуск — ровно одна задача. 90 минут хватает на план, две реализации и review.
   runBudgetMs: readNumber("FA_RUN_BUDGET_MIN", 90) * 60_000,
   maxAttempts: Math.max(1, readNumber("FA_MAX_ATTEMPTS", 2)),
+  maxRepairs: Math.max(0, readNumber("FA_MAX_REPAIRS", 2)),
+  maxPlanRepairs: Math.max(0, readNumber("FA_MAX_PLAN_REPAIRS", 1)),
   tokenBudget: readNumber("FA_TOKEN_BUDGET", 2_000_000),
   maxInfraFailures: Math.max(1, readNumber("FA_MAX_INFRA_FAILURES", 3)),
-  reviewTimeoutMs: readNumber("FA_REVIEW_TIMEOUT_MIN", 10) * 60_000
+  reviewTimeoutMs: readNumber("FA_REVIEW_TIMEOUT_MIN", 10) * 60_000,
+  planTimeoutMs: readNumber("FA_PLAN_TIMEOUT_MIN", 12) * 60_000,
+  specReviewTimeoutMs: readNumber("FA_SPEC_REVIEW_TIMEOUT_MIN", 8) * 60_000,
+  verifyTimeoutMs: readNumber("FA_VERIFY_TIMEOUT_MIN", 5) * 60_000,
+  uiTimeoutMs: readNumber("FA_UI_TIMEOUT_MIN", 4) * 60_000,
+  rateWaitMaxMs: readNumber("FA_RATE_WAIT_MAX_SEC", 45) * 1000,
+  contextChars: readNumber("FA_CONTEXT_CHARS", 60_000),
+  memoryEntries: readNumber("FA_MEMORY_LIMIT", 6),
+  maxDiffFiles: readNumber("FA_MAX_DIFF_FILES", 25),
+  maxDiffLines: readNumber("FA_MAX_DIFF_LINES", 2500)
+};
+
+export const PHASES = {
+  plan: readFlag("FA_PHASE_PLAN", true),
+  specReview: readFlag("FA_PHASE_SPEC_REVIEW", true),
+  implement: true,
+  verify: true,
+  ui: readFlag("FA_PHASE_UI", true),
+  review: readFlag("FA_PHASE_REVIEW", true)
 };
 
 export function isCi() {
@@ -80,4 +109,13 @@ export function killSwitch() {
 
 export function budgetExhausted(startedAt, limits = LIMITS) {
   return Date.now() - startedAt >= limits.runBudgetMs;
+}
+
+export function remainingBudget(startedAt, limits = LIMITS) {
+  return Math.max(0, limits.runBudgetMs - (Date.now() - startedAt));
+}
+
+/** Бюджет отдельной фазы не может превышать остаток запуска. */
+export function phaseTimeout(startedAt, requestedMs) {
+  return Math.max(0, Math.min(requestedMs, remainingBudget(startedAt)));
 }

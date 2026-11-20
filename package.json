@@ -10,11 +10,17 @@
   "scripts": {
     "verify": "node scripts/verify.mjs",
     "verify:json": "node scripts/verify.mjs --json",
+    "verify:ui": "node scripts/fa/ui-smoke.mjs",
     "fa": "node scripts/fa/loop.mjs",
     "fa:once": "node scripts/fa/loop.mjs --once --force-local",
     "fa:preflight": "node scripts/fa/loop.mjs --preflight",
+    "fa:doctor": "node scripts/fa/doctor.mjs",
     "fa:status": "node scripts/fa/report.mjs",
     "fa:queue": "node scripts/fa/queue.mjs list",
+    "fa:context": "node scripts/fa/context.mjs",
+    "fa:memory": "node scripts/fa/memory.mjs",
+    "fa:selftest": "node scripts/fa/selftest.mjs",
+    "fa:mcp": "node scripts/fa/mcp-server.mjs",
     "fa:eval": "node scripts/fa/eval.mjs"
   }
 }

@@ -19,8 +19,8 @@
 | Есть инварианты, которые не может обойти модель? | Да, 13 проверок в `scripts/verify.mjs` | [VERIFICATION.md](VERIFICATION.md) |
 | Проверки запускает агент или оркестратор? | Оркестратор, после агента | `scripts/fa/loop.mjs` |
 | Где выбирается модель? | В одном месте: `scripts/fa/models.mjs` + `FA_MODELS` | `scripts/fa/models.mjs` |
-| Есть fallback при квоте? | Да: Claude Haiku → Gemini Flash-Lite, без остановки шага | `scripts/fa/loop.mjs`, `scripts/fa/models.mjs` |
-| У каждого провайдера свой ключ? | Да: `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` | `.github/workflows/fa.yml` |
+| Есть fallback при квоте? | Да: Gemini keys → другой доступный провайдер, без остановки шага | `scripts/fa/loop.mjs`, `scripts/fa/models.mjs` |
+| У каждого провайдера свой ключ? | Да: `XEROSHARC_API_KEY`, `GEMINI_API_KEY` (до пяти ключей), `OPENROUTER_API_KEY` для редкого ERNIE fallback, NVIDIA опционально | `.github/workflows/fa.yml` |
 | Есть автоматический замер при смене модели? | Да, `npm run fa:eval -- --suite model` | [PROMPTS.md](PROMPTS.md) |
 | Замер сравнивается с эталоном? | Да, baseline в `PROMPTS.md` | [PROMPTS.md](PROMPTS.md) |
 | Промпты версионируются? | Да, версия в промпте задачи и в документе | [PROMPTS.md](PROMPTS.md) |

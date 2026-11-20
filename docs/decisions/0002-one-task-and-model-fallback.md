@@ -14,7 +14,7 @@
 Нужно:
 
 1. Один запуск — ровно одна задача из `TASKS.md`, затем завершение.
-2. Крон каждые 15 минут поднимает следующий запуск.
+2. Крон каждые 30 минут поднимает следующий запуск.
 3. Модели выбираются в одном месте.
 4. При квоте/429/401 провайдера FA переключается на следующую модель и продолжает шаг.
 5. У каждого провайдера свой ключ.
@@ -23,11 +23,10 @@
 
 - Ровно одна задача за запуск: `loop.mjs` после первой задачи выходит. `mode=run` и `mode=once`
   эквивалентны, `once` оставлен как совместимый алиас.
-- GitHub Actions watchdog — `*/15 * * * *`, job timeout 90 минут.
-- Единый реестр моделей — `scripts/fa/models.mjs`. Порядок по умолчанию:
-  1. `anthropic/claude-haiku-4-5` — `ANTHROPIC_API_KEY`;
-  2. `google/gemini-3.1-flash-lite#low` — `GEMINI_API_KEY`.
-  Переопределение — repo variable `FA_MODELS` (тот же формат `provider/model#variant`).
+- GitHub Actions watchdog — `*/30 * * * *`, job timeout 90 минут.
+- Единый реестр моделей — `scripts/fa/models.mjs`: Gemini и XEROSHARC Claude Haiku/Sonnet включены по умолчанию; NVIDIA NIM — опционально. Непроверенные OpenCode-free и прямой Anthropic пути не включены в стандартный маршрут.
+- Переопределения — repo variables `FA_MODELS` и `FA_PLANNER_MODEL`/`FA_EXECUTOR_MODEL`/`FA_REPAIR_MODEL`/`FA_REVIEWER_MODEL`.
+- Gemini secrets `GEMINI_API_KEY` … `GEMINI_API_KEY_5` ротируются при quota; Actions cache сохраняет модельное состояние, память и до пяти checkpoint-запусков.
 - `--model` передаётся только оркестратором; в `.opencode/agents/*.md` модели нет.
 - Ошибки `quota`, `auth`, `unavailable` классифицируются в `models.mjs`.
   При них частичные правки откатываются, запускается следующая модель с тем же

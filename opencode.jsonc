@@ -1,6 +1,11 @@
 {
   "$schema": "https://opencode.ai/config.json",
 
+  // FA — автономный агент. Модели выбирает scripts/fa/models.mjs;
+  // здесь только провайдеры, MCP-инструменты и жёсткие границы.
+  "default_agent": "fa",
+  "model": "google/gemini-3.1-flash-lite",
+
   // FA работает без человека: контекст сжимается, вывод инструментов ограничен.
   "compaction": {
     "auto": true,
@@ -9,36 +14,116 @@
   },
   "tool_output": {
     "max_lines": 1200,
-    "max_bytes": 40000
+    "max_bytes": 60000
   },
   "watcher": {
-    "ignore": ["fa/logs/**", "fa/state/**", "fa/eval/**", "node_modules/**", ".wrangler/**"]
+    "ignore": ["fa/logs/**", "fa/state/**", "fa/eval/**", "fa/memory/**", "fa/tmp/**", "node_modules/**", ".wrangler/**"]
   },
   "experimental": {
-    "todo": true
+    "todo": true,
+    "subagent_depth": 1
   },
 
-  // Прокси-шлюз XEROSHARC (OpenAI-совместимый). Ключ валиден ТОЛЬКО на этом baseURL,
-  // поэтому официальные провайдеры anthropic/openai с ним не работают.
-  // Ключ подставляется из env (GitHub Secret XEROSHARC_API_KEY), в файле его нет.
-  // ID моделей должны один-в-один совпадать с GET https://xerosharc.site/v1/models.
-  "provider": {
+  // V2: providers (не provider), package (не npm), settings (не options).
+  // Ключи приходят только из env; в файле их нет.
+  "providers": {
+    "google": {
+      "env": ["GEMINI_API_KEY", "GEMINI_API_KEY_2", "GEMINI_API_KEY_3", "GEMINI_API_KEY_4", "GEMINI_API_KEY_5", "GOOGLE_GENERATIVE_AI_API_KEY", "GOOGLE_API_KEY"],
+      "settings": {
+        "apiKey": "{env:GEMINI_API_KEY}",
+        "headerTimeout": 300000,
+        "chunkTimeout": 300000
+      }
+    },
     "xerosharc": {
-      "npm": "@ai-sdk/openai-compatible",
       "name": "XEROSHARC gateway",
-      "options": {
+      "env": ["XEROSHARC_API_KEY"],
+      "package": "@opencode/ai/providers/openai-compatible",
+      "settings": {
         "baseURL": "https://xerosharc.site/v1",
-        "apiKey": "{env:XEROSHARC_API_KEY}"
+        "apiKey": "{env:XEROSHARC_API_KEY}",
+        "headerTimeout": 300000,
+        "chunkTimeout": 300000
       },
       "models": {
-        "claude-haiku-5-5": { "name": "Claude Haiku 5.5 (XEROSHARC)" },
-        "claude-sonnet-5-5": { "name": "Claude Sonnet 5.5 (XEROSHARC)" },
-        "gpt-5.5": { "name": "GPT-5.5 (XEROSHARC)" }
+        "claude-haiku-5-5": {
+          "name": "Claude Haiku 5.5 (XEROSHARC)",
+          "limit": { "context": 1000000, "output": 128000 }
+        },
+        "claude-sonnet-5-5": {
+          "name": "Claude Sonnet 5.5 (XEROSHARC)",
+          "limit": { "context": 1000000, "output": 128000 }
+        },
+        "claude-opus-5-5": {
+          "name": "Claude Opus 5.5 (XEROSHARC)",
+          "limit": { "context": 1000000, "output": 128000 }
+        },
+        "gpt-5.5": {
+          "name": "GPT-5.5 (XEROSHARC)",
+          "limit": { "context": 400000, "output": 128000 }
+        },
+        "gpt-5.5-pro": {
+          "name": "GPT-5.5 Pro (XEROSHARC)",
+          "limit": { "context": 400000, "output": 128000 }
+        }
+      }
+    },
+    "nvidia": {
+      "name": "NVIDIA NIM",
+      "env": ["NVIDIA_API_KEY", "NVIDIA_NIM_API_KEY"],
+      "package": "@opencode/ai/providers/openai-compatible",
+      "settings": {
+        "baseURL": "https://integrate.api.nvidia.com/v1",
+        "apiKey": "{env:NVIDIA_API_KEY}"
+      },
+      "models": {
+        "deepseek-ai/deepseek-v4.1-flash": {
+          "name": "DeepSeek V4.1 Flash (NVIDIA)",
+          "limit": { "context": 1000000, "output": 384000 }
+        }
+      }
+    }
+  },
+  "openrouter": {
+    "name": "OpenRouter",
+    "env": ["OPENROUTER_API_KEY"],
+    "package": "@opencode/ai/providers/openai-compatible",
+    "settings": {
+      "baseURL": "https://openrouter.ai/api/v1",
+      "apiKey": "{env:OPENROUTER_API_KEY}",
+      "headerTimeout": 300000,
+      "chunkTimeout": 300000
+    },
+    "models": {
+      "baidu/ernie-5.5-flash-preview:free": {
+        "name": "ERNIE 5.5 Flash Preview (free)",
+        "limit": { "context": 256000, "output": 32000 }
       }
     }
   },
 
-  // Базовые правила для человека. Агент fa добавляет свои запреты в .opencode/agents/fa.md.
+  // MCP даёт модели детерминированные инструменты: очередь, verify, diff,
+  // контекст, память. Это дешевле, чем читать весь репозиторий в контекст.
+  "mcp": {
+    "timeout": {
+      "startup": 15000,
+      "catalog": 15000,
+      "execution": 180000
+    },
+    "servers": {
+      "fa": {
+        "type": "local",
+        "command": ["node", "scripts/fa/mcp-server.mjs"],
+        "cwd": ".",
+        "codemode": false,
+        "environment": {
+          "FA_MCP": "1"
+        }
+      }
+    }
+  },
+
+  // Базовые правила для человека. Агенты добавляют свои запреты в .opencode/agents.
   "permissions": [
     { "action": "*", "resource": "*", "effect": "allow" },
 
