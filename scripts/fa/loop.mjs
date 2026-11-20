@@ -56,6 +56,7 @@ import {
   canResume,
   clearActive,
   createRunState,
+  isSuccessfulRun,
   loadActive,
   saveActive,
   saveCheckpoint,
@@ -96,6 +97,7 @@ const state = {
   failed: false,
   phases: [],
   executorProvider: "",
+  executorModel: "",
   plan: "",
   verify: null,
   ui: null,
@@ -558,6 +560,9 @@ async function phasePlan({ task, context, memory, attempt }) {
 
 async function phaseSpecReview({ task, context, plan, attempt }) {
   const prompt = buildSpecReviewPrompt({ task, plan, context: context.text });
+  const plannerModel = [...state.phases]
+    .reverse()
+    .find((phase) => phase.phase === "plan" || phase.phase === "plan-repair")?.model;
   log("phase.start", { phase: "spec-review" });
   const result = await runPhase({
     session: state.session,
@@ -570,6 +575,8 @@ async function phaseSpecReview({ task, context, plan, attempt }) {
     fileBase: `${task.id}-attempt${attempt}-spec`,
     taskId: task.id,
     markers: [],
+    avoidProvider: providerOf(plannerModel),
+    excludeModels: plannerModel ? [plannerModel] : [],
     log
   });
   rememberPhase("spec-review", result, { attempt });
@@ -618,6 +625,7 @@ async function phaseImplement({ task, context, plan, memory, attempt, previousFa
   rememberPhase("implement", result, { attempt });
   if (result.kind === "ok") {
     state.executorProvider = providerOf(result.model);
+    state.executorModel = result.model;
     state.modelsUsed = [...(state.modelsUsed || []), result.model];
     saveCheckpoint(state.runId, { patch: checkpointPatch(), meta: { phase: "implement", attempt } });
     persistState("verify", { attempt, artifacts: { checkpoint: join(run.dir, "checkpoint.json") } });
@@ -654,6 +662,7 @@ async function phaseRepair({ task, context, plan, verify, ui, attempt, round }) 
   if (result.kind === "ok") {
     state.repairs += 1;
     state.executorProvider = providerOf(result.model);
+    state.executorModel = result.model;
     saveCheckpoint(state.runId, { patch: checkpointPatch(), meta: { phase: "repair", round } });
     persistState("verify", { attempt, artifacts: { checkpoint: join(run.dir, "checkpoint.json") } });
   }
@@ -671,6 +680,10 @@ async function phaseReview({ task, context, plan, verify, ui, attempt, round }) 
     flags: []
   });
   log("phase.start", { phase: "review", message: `round ${round}` });
+  const plannerModel = [...state.phases]
+    .reverse()
+    .find((phase) => phase.phase === "plan" || phase.phase === "plan-repair")?.model;
+  const excludeModels = [state.executorModel, plannerModel].filter(Boolean);
   const result = await runPhase({
     session: state.session,
     role: "reviewer",
@@ -683,6 +696,7 @@ async function phaseReview({ task, context, plan, verify, ui, attempt, round }) 
     taskId: task.id,
     markers: [],
     avoidProvider: state.executorProvider,
+    excludeModels,
     log
   });
   rememberPhase("review", result, { round });
@@ -714,6 +728,7 @@ function recordTask(task, fields) {
 function blockTask(task, reason, attempts) {
   const text = readQueueText();
   writeQueue(markBlocked(text, task.id, sanitize(reason)));
+  state.failed = true;
   const message = `chore(fa): block ${task.id}`;
   git.commitAll(message, [`FA-Task: ${task.id}`, `Reason: ${sanitize(reason).slice(0, 400)}`]);
   if (!cli.noPush) pushWithRetry();
@@ -1437,7 +1452,7 @@ function finish() {
   const durationMs = Date.now() - state.startedAt;
   const summary = {
     runId: run ? run.dir.split("/").pop() : makeRunId(),
-    ok: !state.failed,
+    ok: isSuccessfulRun(state),
     stopReason: state.stopReason,
     startedAt: new Date(state.startedAt).toISOString(),
     finishedAt: nowIso(),
@@ -1474,7 +1489,7 @@ function finish() {
     message: `${summary.ok ? "ok" : "failed"} (${summary.stopReason}), done=${summary.tasksDone}, blocked=${summary.tasksBlocked}, tokens=${state.tokenTotal}`
   });
 
-  process.exitCode = state.failed ? 1 : 0;
+  process.exitCode = isSuccessfulRun(state) ? 0 : 1;
 }
 
 main().catch((error) => {

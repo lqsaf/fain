@@ -5,11 +5,11 @@ FA живёт в GitHub Actions и не требует ноутбука. Это�
 ## Что нужно один раз
 
 1. **Ключи провайдеров.** `Settings → Secrets and variables → Actions → New repository secret`.
-   Для стандартного маршрута нужны `GEMINI_API_KEY` и `XEROSHARC_API_KEY`. Для ротации Gemini можно добавить `GEMINI_API_KEY_2` … `GEMINI_API_KEY_5`. NVIDIA NIM опционально включается `NVIDIA_API_KEY` или `NVIDIA_NIM_API_KEY`. Для редкого fallback ERNIE добавьте `OPENROUTER_API_KEY`.
+   Для стандартного исполнителя нужен `XEROSHARC_API_KEY`; `GEMINI_API_KEY` включает Gemini как основной planner. Для ротации Gemini можно добавить `GEMINI_API_KEY_2` … `_5`. NVIDIA NIM подключается через `NVIDIA_API_KEY` или `NVIDIA_NIM_API_KEY` и является fallback для executor/repair. Для редкого fallback ERNIE добавьте `OPENROUTER_API_KEY`.
    Если ключа провайдера нет, его модели пропускаются; preflight требует хотя бы одну доступную модель на каждую роль.
 2. **Модели.** В `Actions → FA → Run workflow` можно отдельно выбрать planner, executor, repair и reviewer; `inherit` использует repo variables `FA_PLANNER_MODEL`, `FA_EXECUTOR_MODEL`, `FA_REPAIR_MODEL`, `FA_REVIEWER_MODEL`, а если они не заданы — стандартный роутинг. Расписание cron использует repo variables и стандартный роутинг. `FA_MODELS` остаётся общим списком fallback.
 3. **Права.** В `Settings → Actions → General → Workflow permissions` разрешить `Read and write permissions`.
-4. **Branch protection для `main`.** Только PR, обязательный check `fa-verify`, запрет force-push и удаления. Merge делает человек.
+4. **Branch protection для `main`.** Только PR, обязательный check `fa-verify`, запрет force-push и удаления. Merge делает человек. Заблокированная задача теперь завершает FA job с ошибкой, чтобы `done=0, blocked>0` не выглядело успешным запуском.
 5. **Опционально `FA_PAT`.** Fine-grained token с правами `contents`, `pull-requests`, `issues`. Нужен, чтобы PR, созданный FA, запускал проверки: push с `GITHUB_TOKEN` не триггерит другие workflow.
 6. **Включение.** Переменная `FA_ENABLED`:
    - не задана или `true` — FA работает;
@@ -37,6 +37,8 @@ FA живёт в GitHub Actions и не требует ноутбука. Это�
 | `OPENCODE_VERSION` | `latest` | версия CLI (лучше запинить) |
 
 Секреты и переменные не хранятся в репозитории. В `.env` и `.dev.vars` FA не заглядывает.
+
+При `inherit` стандартный маршрут использует Gemini Flash-Lite только для планирования; XEROSHARC Sonnet — для реализации и ремонта, NVIDIA Nemotron — fallback. Если оба исполнителя недоступны, запуск остановится, а не потратит Gemini-квоту на реализацию. Явно выбранный `FA_EXECUTOR_MODEL` переопределяет этот маршрут.
 
 OpenRouter ERNIE (`openrouter/baidu/ernie-5.5-flash-preview:free`) доступна только для планирования и ревью и ограничена двумя запросами за UTC-сутки по умолчанию. Для неё harness использует одношаговый профиль без инструментов: один вызов модели равен одному API-запросу. Счётчик хранится в Actions Cache; при достижении лимита router пропускает модель и продолжает обычный fallback. Лимит можно задать переменной `FA_OPENROUTER_ERNIE_DAILY_LIMIT` (например, `1`).
 

@@ -10,6 +10,10 @@ import { PATHS, ROOT, makeRunId } from "./config.mjs";
 const STATE_VERSION = 2;
 const MAX_SAVED_RUNS = 5;
 
+export function isSuccessfulRun({ failed = false, tasksBlocked = 0 } = {}) {
+  return !failed && tasksBlocked === 0;
+}
+
 export function stateRoot(root = ROOT) {
   return process.env.FA_STATE_DIR || join(root, "fa/state");
 }

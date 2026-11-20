@@ -158,6 +158,7 @@ export async function runPhase({
   taskId = "",
   markers = [],
   avoidProvider = "",
+  excludeModels = [],
   log = () => {},
   env = process.env
 }) {
@@ -166,7 +167,7 @@ export async function runPhase({
   }
   const contextTokens = estimateTokens(prompt.length);
   const estimate = estimatePhaseTokens(role, { contextTokens });
-  const candidates = session.candidates(role, { avoidProvider });
+  const candidates = session.candidates(role, { avoidProvider, exclude: excludeModels });
   let fallbacks = 0;
   let lastReason = "no model available";
   let totalTokens = 0;
@@ -180,7 +181,7 @@ export async function runPhase({
     const reserved = await session.reserve(role, {
       estimateTokens: estimate,
       avoidProvider,
-      exclude: candidates.slice(0, index).map((item) => item.id)
+      exclude: [...excludeModels, ...candidates.slice(0, index).map((item) => item.id)]
     });
     if (!reserved.ok) {
       lastReason = reserved.reason;

@@ -16,47 +16,47 @@ import { spawnSync } from "node:child_process";
 
 export const MODEL_ROLES = ["planner", "executor", "repair", "reviewer"];
 
-// Роли — приоритет, а не жёсткая привязка. Router выбирает первую доступную
-// модель роли и старается не брать reviewer с тем же провайдером, что executor.
+// Роутер выбирает первую доступную модель каждой роли. Исполнитель ограничен
+// явным allowlist ролей: quota-sensitive planner models не становятся fallback.
 export const DEFAULT_MODELS = [
   {
     id: "google/gemini-3.1-flash-lite",
     label: "Gemini 3.1 Flash-Lite",
     provider: "google",
-    roles: ["executor", "repair", "planner", "reviewer"],
+    roles: ["planner"],
     context: 1_048_576,
     output: 65_536,
     tpm: 250_000,
     cost: { input: 0.1, output: 0.4 },
-    notes: "большой TPM-лимит; основной исполнитель для объёмных правок"
+    notes: "быстрый planner; не используется для реализации и ремонта по умолчанию"
   },
   {
     id: "xerosharc/claude-haiku-5-5",
     label: "Claude Haiku 5.5 (XEROSHARC)",
     provider: "xerosharc",
-    roles: ["repair", "planner", "reviewer"],
+    roles: ["planner", "reviewer"],
     context: 1_000_000,
     output: 128_000,
     tpm: 200_000,
     cost: { input: 1, output: 5 },
-    notes: "аккуратный исполнитель точечных правок через шлюз"
+    notes: "быстрая модель для планирования и независимого ревью через шлюз"
   },
   {
     id: "xerosharc/claude-sonnet-5-5",
     label: "Claude Sonnet 5.5 (XEROSHARC)",
     provider: "xerosharc",
-    roles: ["repair", "planner", "reviewer"],
+    roles: ["planner", "executor", "repair", "reviewer"],
     context: 1_000_000,
     output: 128_000,
     tpm: 200_000,
     cost: { input: 3, output: 15 },
-    notes: "дорогая модель для сложной починки и финального review"
+    notes: "основной исполнитель и repair-модель; также доступна planner/reviewer fallback"
   },
   {
     id: "nvidia/nemotron-3-ultra-550b-a55b",
     label: "Nemotron 3 Ultra (NVIDIA NIM)",
     provider: "nvidia",
-    roles: ["planner", "executor", "reviewer"],
+    roles: ["planner", "executor", "repair", "reviewer"],
     context: 1_000_000,
     output: 8_192,
     tpm: 250_000,
@@ -191,10 +191,11 @@ export function modelLabel(env = process.env) {
 
 /**
  * Модели роли. Если явная переменная роли пуста, берём модели с этой ролью.
- * Для planner/reviewer/repair допустим fallback на любую доступную модель:
- * роль — предпочтение, а не жёсткий контракт.
+ * Для executor fallback за пределы явно назначенных исполнителей запрещён.
+ * Остальные роли могут использовать общую цепочку, когда для них не задана
+ * ни одна доступная модель.
  */
-export function modelsForRole(role, env = process.env, { fallback = true } = {}) {
+export function modelsForRole(role, env = process.env, { fallback = role !== "executor" } = {}) {
   const explicit = splitList(env[`FA_${String(role).toUpperCase()}_MODEL`]);
   if (explicit.length > 0) {
     return parseModels(explicit.join(","))

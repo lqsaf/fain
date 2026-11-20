@@ -355,6 +355,8 @@ class Browser {
       Escape: { code: "Escape", windowsVirtualKeyCode: 27 },
       ArrowDown: { code: "ArrowDown", windowsVirtualKeyCode: 40 },
       ArrowUp: { code: "ArrowUp", windowsVirtualKeyCode: 38 },
+      Home: { code: "Home", windowsVirtualKeyCode: 36 },
+      End: { code: "End", windowsVirtualKeyCode: 35 },
       Space: { code: "Space", windowsVirtualKeyCode: 32 }
     };
     const info = codes[key];
@@ -542,6 +544,160 @@ export async function runUiSmoke({
       await browser.evaluate("localStorage.clear()");
       await browser.goto(page);
     };
+    const chooseSettingOption = async ({
+      name,
+      terms,
+      targetValue,
+      targetText,
+      storageKey,
+      expectedAttribute,
+      interaction = "keyboard"
+    }) => {
+      const marker = `fa-smoke-${name}`;
+      const selector = `[data-fa-smoke-control="${marker}"]`;
+      const control = await browser.evaluate(`(() => {
+        const root = document.getElementById("settings-content");
+        const controls = [...document.querySelectorAll('#settings-content [role="combobox"], #settings-content [aria-haspopup="listbox"]')];
+        const terms = ${JSON.stringify(terms)};
+        const element = controls.find((candidate) => {
+          const names = [candidate.getAttribute("aria-label") || ""];
+          const labelledBy = candidate.getAttribute("aria-labelledby") || "";
+          for (const id of labelledBy.split(/\\s+/).filter(Boolean)) {
+            names.push(document.getElementById(id)?.textContent || "");
+          }
+          let node = candidate;
+          for (let depth = 0; node && node !== root && depth < 5; depth += 1, node = node.parentElement) {
+            names.push(node.textContent || "");
+            const text = names.join(" ").toLowerCase();
+            if (terms.some((term) => text.includes(term))) return true;
+          }
+          return false;
+        });
+        if (!element) return null;
+        element.setAttribute("data-fa-smoke-control", ${JSON.stringify(marker)});
+        return { role: element.getAttribute("role"), expanded: element.getAttribute("aria-expanded") };
+      })()`);
+      if (!control) throw new Error(`custom ${name} dropdown with an accessible label was not found`);
+
+      const focus = async () => browser.evaluate(`document.querySelector(${JSON.stringify(selector)})?.focus()`);
+      await focus();
+      if (interaction === "pointer") await browser.click(selector);
+      else await browser.press("Enter");
+      const opened = await browser.evaluate(`(() => {
+        const control = document.querySelector(${JSON.stringify(selector)});
+        const list = document.getElementById(control?.getAttribute("aria-controls")) ||
+          [...document.querySelectorAll('[role="listbox"]')].find((item) => !item.hidden);
+        if (!control || !list) return null;
+        const triggerRect = control.getBoundingClientRect();
+        const listRect = list.getBoundingClientRect();
+        return {
+          expanded: control.getAttribute("aria-expanded"),
+          visible: !list.hidden && getComputedStyle(list).display !== "none" && getComputedStyle(list).visibility !== "hidden",
+          below: listRect.top >= triggerRect.bottom - 2
+        };
+      })()`);
+      if (!opened?.visible || opened.expanded !== "true") throw new Error(`${name} dropdown did not open`);
+      if (!opened.below) throw new Error(`${name} dropdown did not expand inline below its trigger`);
+
+      const savedBeforeEscape = await browser.evaluate(`localStorage.getItem(${JSON.stringify(storageKey)})`);
+      await browser.evaluate("document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }))");
+      const outsideClick = await browser.evaluate(`({
+        expanded: document.querySelector(${JSON.stringify(selector)})?.getAttribute("aria-expanded"),
+        value: localStorage.getItem(${JSON.stringify(storageKey)})
+      })`);
+      if (outsideClick.expanded === "true" || outsideClick.value !== savedBeforeEscape) {
+        throw new Error(`${name} dropdown did not close on outside click without changing its value`);
+      }
+
+      await focus();
+      await browser.press("Enter");
+      const reopened = await browser.evaluate(`document.querySelector(${JSON.stringify(selector)})?.getAttribute("aria-expanded")`);
+      if (reopened !== "true") throw new Error(`${name} dropdown did not reopen from the keyboard`);
+      await browser.press("Escape");
+      const escaped = await browser.evaluate(`({
+        expanded: document.querySelector(${JSON.stringify(selector)})?.getAttribute("aria-expanded"),
+        value: localStorage.getItem(${JSON.stringify(storageKey)})
+      })`);
+      if (escaped.expanded === "true" || escaped.value !== savedBeforeEscape) {
+        throw new Error(`${name} dropdown Escape did not close without changing the value`);
+      }
+
+      await focus();
+      if (interaction === "pointer") await browser.click(selector);
+      else await browser.press("Space");
+      const navigation = await browser.evaluate(`(() => {
+        const control = document.querySelector(${JSON.stringify(selector)});
+        const list = document.getElementById(control?.getAttribute("aria-controls")) ||
+          [...document.querySelectorAll('[role="listbox"]')].find((item) => !item.hidden);
+        if (!control || !list) return null;
+        const options = [...list.querySelectorAll('[role="option"]')];
+        const targetText = new RegExp(${JSON.stringify(targetText)}, "iu");
+        const target = options.findIndex((option) =>
+          [option.dataset.value, option.getAttribute("value")].some((value) => value?.toLowerCase() === ${JSON.stringify(targetValue)}) ||
+          targetText.test(option.textContent || option.getAttribute("aria-label") || "")
+        );
+        const activeIndex = () => {
+          const activeId = control.getAttribute("aria-activedescendant");
+          const active = activeId ? document.getElementById(activeId) : document.activeElement;
+          return options.indexOf(active);
+        };
+        return {
+          optionCount: options.length,
+          selectedCount: options.filter((option) => option.getAttribute("aria-selected") === "true").length,
+          target,
+          activeIndex: activeIndex(),
+          listVisible: !list.hidden && getComputedStyle(list).display !== "none"
+        };
+      })()`);
+      if (!navigation?.listVisible || navigation.optionCount < 2 || navigation.selectedCount !== 1 || navigation.target < 0) {
+        throw new Error(`${name} dropdown has no accessible listbox options for ${targetValue}`);
+      }
+
+      if (interaction === "pointer") {
+        await browser.evaluate(`(() => {
+          const control = document.querySelector(${JSON.stringify(selector)});
+          const list = document.getElementById(control?.getAttribute("aria-controls")) ||
+            [...document.querySelectorAll('[role="listbox"]')].find((item) => !item.hidden);
+          list?.querySelectorAll('[role="option"]')[${navigation.target}]?.setAttribute(
+            "data-fa-smoke-option",
+            ${JSON.stringify(marker)}
+          );
+        })()`);
+        await browser.click(`[data-fa-smoke-option="${marker}"]`);
+      } else {
+        await browser.press("End");
+        const endIndex = await browser.evaluate(`(() => {
+          const control = document.querySelector(${JSON.stringify(selector)});
+          const list = document.getElementById(control?.getAttribute("aria-controls")) ||
+            [...document.querySelectorAll('[role="listbox"]')].find((item) => !item.hidden);
+          const options = [...(list?.querySelectorAll('[role="option"]') || [])];
+          const activeId = control?.getAttribute("aria-activedescendant");
+          return options.indexOf(activeId ? document.getElementById(activeId) : document.activeElement);
+        })()`);
+        if (endIndex !== navigation.optionCount - 1) throw new Error(`${name} dropdown End key did not move to the last option`);
+        await browser.press("Home");
+        const homeIndex = await browser.evaluate(`(() => {
+          const control = document.querySelector(${JSON.stringify(selector)});
+          const list = document.getElementById(control?.getAttribute("aria-controls")) ||
+            [...document.querySelectorAll('[role="listbox"]')].find((item) => !item.hidden);
+          const options = [...(list?.querySelectorAll('[role="option"]') || [])];
+          const activeId = control?.getAttribute("aria-activedescendant");
+          return options.indexOf(activeId ? document.getElementById(activeId) : document.activeElement);
+        })()`);
+        if (homeIndex !== 0) throw new Error(`${name} dropdown Home key did not move to the first option`);
+        for (let index = 0; index < navigation.target; index += 1) await browser.press("ArrowDown");
+        await browser.press("Enter");
+      }
+
+      const selected = await browser.evaluate(`({
+        expanded: document.querySelector(${JSON.stringify(selector)})?.getAttribute("aria-expanded"),
+        value: localStorage.getItem(${JSON.stringify(storageKey)}),
+        attribute: document.documentElement.getAttribute(${JSON.stringify(expectedAttribute)})
+      })`);
+      if (selected.expanded === "true") throw new Error(`${name} dropdown did not close after selection`);
+      if (selected.value !== targetValue) throw new Error(`${name} dropdown did not persist ${targetValue}`);
+      if (selected.attribute !== targetValue) throw new Error(`${name} preference did not apply ${targetValue}`);
+    };
 
     await check("index.load", async () => {
       await load("index.html");
@@ -589,53 +745,111 @@ export async function runUiSmoke({
     await check("settings.load", async () => {
       await load("settings.html");
       const info = await browser.evaluate(`({
-        selects: document.querySelectorAll("#settings-content select").length,
+        nativeSelects: document.querySelectorAll("#settings-content select").length,
+        dropdowns: document.querySelectorAll('#settings-content [role="combobox"], #settings-content [aria-haspopup="listbox"]').length,
+        accordions: [...document.querySelectorAll('#settings-content button[aria-expanded][aria-controls]')].map((button) => {
+          const panel = document.getElementById(button.getAttribute("aria-controls"));
+          return {
+            expanded: button.getAttribute("aria-expanded") === "true",
+            panelExists: Boolean(panel),
+            panelHidden: Boolean(panel?.hidden || panel?.getAttribute("aria-hidden") === "true"),
+            panelFocusable: Boolean(panel && !panel.hidden &&
+              getComputedStyle(panel).display !== "none" &&
+              [...panel.querySelectorAll("a[href], button, input, select, textarea, [tabindex]")].some((item) => item.tabIndex >= 0))
+          };
+        }),
         title: document.title,
         hasContent: Boolean(document.getElementById("settings-content")?.children.length)
       })`);
       if (!info.hasContent) throw new Error("#settings-content is empty");
-      if (info.selects < 3) throw new Error(`expected at least 3 selects, got ${info.selects}`);
+      if (info.nativeSelects > 0) throw new Error(`found ${info.nativeSelects} native select elements; settings require custom dropdowns`);
+      if (info.dropdowns < 3) throw new Error(`expected at least 3 accessible custom dropdowns, got ${info.dropdowns}`);
+      if (info.accordions.length < 3 || info.accordions.some((item) => !item.panelExists)) {
+        throw new Error(`expected 3 accessible accordion sections with controlled panels, got ${info.accordions.length}`);
+      }
+      if (info.accordions.filter((item) => item.expanded).length !== 1 || !info.accordions[0].expanded) {
+        throw new Error("the first accordion section must be open by default and the others closed");
+      }
+      if (info.accordions.slice(1).some((item) => !item.panelHidden)) {
+        throw new Error("collapsed accordion panels must be hidden from assistive technology");
+      }
+      if (info.accordions.slice(1).some((item) => item.panelFocusable)) {
+        throw new Error("collapsed accordion panels contain keyboard-focusable controls");
+      }
       if (!info.title) throw new Error("document.title is empty");
     });
 
+    await check("settings.accordion", async () => {
+      await load("settings.html");
+      const selector = await browser.evaluate(`(() => {
+        const button = document.querySelector('#settings-content button[aria-expanded="true"][aria-controls]');
+        if (!button) return "";
+        button.setAttribute("data-fa-smoke-accordion", "first");
+        return '[aria-controls="' + CSS.escape(button.getAttribute("aria-controls")) + '"]';
+      })()`);
+      if (!selector) throw new Error("default-open accordion button was not found");
+      await browser.click('[data-fa-smoke-accordion="first"]');
+      const collapsed = await browser.evaluate(`(() => {
+        const button = document.querySelector(${JSON.stringify(selector)});
+        const panel = document.getElementById(button?.getAttribute("aria-controls"));
+        return button?.getAttribute("aria-expanded") === "false" &&
+          Boolean(panel?.hidden || panel?.getAttribute("aria-hidden") === "true");
+      })()`);
+      if (!collapsed) throw new Error("accordion click did not collapse and hide its panel");
+      await browser.goto("settings.html");
+      const persisted = await browser.evaluate(`(() => {
+        const button = document.querySelector(${JSON.stringify(selector)});
+        return button?.getAttribute("aria-expanded") === "false";
+      })()`);
+      if (!persisted) throw new Error("collapsed accordion state did not persist after reload");
+      await browser.evaluate(`document.querySelector(${JSON.stringify(selector)})?.focus()`);
+      await browser.press("Space");
+      const expanded = await browser.evaluate(`document.querySelector(${JSON.stringify(selector)})?.getAttribute("aria-expanded")`);
+      if (expanded !== "true") throw new Error("accordion did not expand with the Space key");
+    });
+
     await check("settings.theme", async () => {
+      await load("settings.html");
+      await chooseSettingOption({
+        name: "theme",
+        terms: ["theme", "тема", "主题"],
+        targetValue: "light",
+        targetText: "(?:\\blight\\b|свет|浅色)",
+        storageKey: "fain_theme_v1",
+        expectedAttribute: "data-theme"
+      });
       await browser.goto("settings.html");
-      const ok = await browser.evaluate(`(() => {
-        const select = document.querySelectorAll("#settings-content select")[0];
-        if (!select) return false;
-        select.value = "light";
-        select.dispatchEvent(new Event("change", { bubbles: true }));
-        return document.documentElement.getAttribute("data-theme") === "light" && localStorage.getItem("fain_theme_v1") === "light";
-      })()`);
-      if (!ok) throw new Error("theme select did not apply light theme");
-      await browser.goto("settings.html");
-      const persisted = await browser.evaluate(`document.documentElement.getAttribute("data-theme")`);
-      if (persisted !== "light") throw new Error("theme did not persist after reload");
-      await browser.evaluate(`(() => {
-        const select = document.querySelectorAll("#settings-content select")[0];
-        select.value = "dark";
-        select.dispatchEvent(new Event("change", { bubbles: true }));
-      })()`);
+      const persisted = await browser.evaluate(`({
+        theme: document.documentElement.getAttribute("data-theme"),
+        value: localStorage.getItem("fain_theme_v1")
+      })`);
+      if (persisted.theme !== "light" || persisted.value !== "light") throw new Error("theme did not persist after reload");
     });
 
     await check("settings.lang", async () => {
+      await load("settings.html");
+      await browser.evaluate("localStorage.setItem('fain_lang_v1', 'ru')");
       await browser.goto("settings.html");
       const before = await browser.evaluate("document.documentElement.lang");
-      const ok = await browser.evaluate(`(() => {
-        const select = document.querySelectorAll("#settings-content select")[2];
-        if (!select) return false;
-        select.value = "en";
-        select.dispatchEvent(new Event("change", { bubbles: true }));
-        return document.documentElement.lang === "en";
-      })()`);
-      if (!ok) throw new Error("language select did not switch to en");
+      const beforeTitle = await browser.evaluate("document.title");
+      await chooseSettingOption({
+        name: "language",
+        terms: ["language", "язык", "语言"],
+        targetValue: "en",
+        targetText: "(?:\\ben\\b|english|англ|英语)",
+        storageKey: "fain_lang_v1",
+        expectedAttribute: "lang",
+        interaction: "pointer"
+      });
+      if (before !== "ru") throw new Error("language smoke test did not start in Russian");
       const title = await browser.evaluate("document.title");
-      if (!title || title === before) throw new Error("document.title did not change for en");
-      await browser.evaluate(`(() => {
-        const select = document.querySelectorAll("#settings-content select")[2];
-        select.value = "ru";
-        select.dispatchEvent(new Event("change", { bubbles: true }));
-      })()`);
+      if (!title || title === beforeTitle) throw new Error("document.title did not change after switching to en");
+      await browser.goto("settings.html");
+      const persisted = await browser.evaluate(`({
+        lang: document.documentElement.lang,
+        value: localStorage.getItem("fain_lang_v1")
+      })`);
+      if (persisted.lang !== "en" || persisted.value !== "en") throw new Error("language did not persist after reload");
     });
 
     await check("settings.customCss", async () => {

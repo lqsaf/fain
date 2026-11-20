@@ -5,11 +5,11 @@
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DEFAULT_MODELS, classifyFailure, estimateTokens, parseModels, providerOf, roleSummary } from "./models.mjs";
+import { DEFAULT_MODELS, classifyFailure, estimateTokens, modelsForRole, parseModels, providerOf, roleSummary } from "./models.mjs";
 import { Breaker, ModelSession, RateLedger, roleCandidates } from "./router.mjs";
 import { buildContext, expandFiles } from "./context.mjs";
 import { addMemory, failureFingerprint, loadMemory, repeatedFailureTrend, searchMemory } from "./memory.mjs";
-import { createRunState, loadRunState, saveRunState, setPhase } from "./state.mjs";
+import { createRunState, isSuccessfulRun, loadRunState, saveRunState, setPhase } from "./state.mjs";
 import { readQueue } from "./queue.mjs";
 import { validatePrompts } from "./prompts.mjs";
 import { TOOLS } from "./mcp-server.mjs";
@@ -96,6 +96,47 @@ check("models.roles", () => {
   assert(roleCandidates("reviewer", {
     env: { ...process.env, FA_AVAILABLE_MODELS: "", GEMINI_API_KEY: "test-key", XEROSHARC_API_KEY: "test-key" }
   }).length > 0, "no reviewer candidates");
+  const independent = roleCandidates("reviewer", {
+    env: {
+      ...process.env,
+      FA_AVAILABLE_MODELS: "",
+      FA_EXCLUDE_MODELS: "",
+      FA_MODELS: "google/gemini-3.1-flash-lite,xerosharc/claude-haiku-5-5",
+      GEMINI_API_KEY: "test-key",
+      XEROSHARC_API_KEY: "test-key"
+    },
+    exclude: ["google/gemini-3.1-flash-lite"]
+  });
+  assert(independent.length === 1 && independent[0].id === "xerosharc/claude-haiku-5-5", "review exclusion did not remove the planner model");
+});
+
+check("models.executor-default", () => {
+  const env = {
+    ...process.env,
+    FA_MODELS: "",
+    FA_EXECUTOR_MODEL: "",
+    FA_AVAILABLE_MODELS: "",
+    FA_EXCLUDE_MODELS: "",
+    GEMINI_API_KEY: "test-key",
+    XEROSHARC_API_KEY: "test-key",
+    NVIDIA_API_KEY: "test-key"
+  };
+  const executorIds = modelsForRole("executor", env).map((model) => model.id);
+  assert(executorIds[0] === "xerosharc/claude-sonnet-5-5", "Sonnet is not the default executor");
+  assert(executorIds.includes("nvidia/nemotron-3-ultra-550b-a55b"), "Nemotron is missing as executor fallback");
+  assert(!executorIds.some((id) => id.startsWith("google/")), "Gemini can still be selected as the default executor");
+  const geminiOnly = modelsForRole("executor", {
+    ...env,
+    XEROSHARC_API_KEY: "",
+    NVIDIA_API_KEY: ""
+  });
+  assert(geminiOnly.length === 0, "executor fell back to Gemini when no configured executor was available");
+});
+
+check("state.blocked-run-fails", () => {
+  assert(!isSuccessfulRun({ failed: false, tasksBlocked: 1 }), "a blocked task produced a successful run");
+  assert(!isSuccessfulRun({ failed: true, tasksBlocked: 0 }), "a failed run was marked successful");
+  assert(isSuccessfulRun({ failed: false, tasksBlocked: 0 }), "an unblocked run was marked failed");
 });
 
 check("router.ledger", () => {

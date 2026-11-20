@@ -10,6 +10,9 @@
 - `concurrency: fa-loop` не даёт двум запускам работать одновременно.
 - Локальный запуск — тот же `scripts/fa/loop.mjs`, но только с `--force-local` и на чистом дереве.
 - Модели и порядок fallback задаются в `scripts/fa/models.mjs`; `FA_MODELS` задаёт общий список, а `FA_PLANNER_MODEL`, `FA_EXECUTOR_MODEL`, `FA_REPAIR_MODEL`, `FA_REVIEWER_MODEL` — роль-приоритеты.
+- Стандартное распределение: Gemini Flash-Lite планирует; XEROSHARC Sonnet исполняет и чинит, NVIDIA Nemotron — fallback. Gemini и Haiku не попадают в реализацию автоматически; ручной `FA_EXECUTOR_MODEL` остаётся явным override.
+- Планировщик не проверяет собственный план, а финальный reviewer исключает точные модели planner и последнего автора кода; если независимой модели нет, review не подменяется самооценкой.
+- Заблокированная задача делает job неуспешным (красным), даже если issue о блокировке создан штатно.
 - Ручной `workflow_dispatch` формы FA дают выбор модели по planner/executor/repair/reviewer; `inherit` применяет repo variable или стандартный роутинг. Scheduled-запуски продолжают использовать repo variables.
 - Стандартный список не полагается на неподтверждённый бесплатный каталог OpenCode или прямой Anthropic-ключ; в нём используются Gemini и XEROSHARC, NVIDIA NIM остаётся опциональным.
 - До пяти ключей Gemini (`GEMINI_API_KEY`, `GEMINI_API_KEY_2` … `_5`) могут ротироваться после quota/rate-limit; значения секретов не выводятся в логи.
