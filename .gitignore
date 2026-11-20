@@ -14,6 +14,7 @@ node_modules/
 # FA runtime artifacts
 fa/logs/
 fa/state/
+fa/memory/
 fa/tmp/
 fa/eval/
 FA_STOP
