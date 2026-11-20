@@ -6,7 +6,7 @@ import { PROTECTED_GLOBS } from "./policy.mjs";
 export const PROMPT_VERSIONS = {
   plan: "plan-v2",
   planRepair: "plan-repair-v2",
-  specReview: "goldfish-v2",
+  specReview: "goldfish-v3",
   implement: "implement-v2",
   repair: "repair-v2",
   review: "review-v2"
@@ -142,8 +142,26 @@ export function buildSpecReviewPrompt({ task, plan, context = "" } = {}) {
     "4. Нет тестов, которые проходят при сломанном поведении.",
     "5. Diff будет минимальным: нет drive-by рефакторинга.",
     "",
-    "Формат: находки по severity (`blocker`, `major`, `minor`) с файлом/шагом; затем последняя строка `VERDICT: PASS` или `VERDICT: FAIL`."
+    "Для каждой находки укажи severity (`blocker`, `major`, `minor`) и файл/шаг.",
+    "Отклоняй план (`VERDICT: FAIL`) только при конкретном blocker или major, мешающем покрыть acceptance, безопасности или запуску проверки.",
+    "Minor — необязательное уточнение: не задерживай из-за него реализацию и ставь `VERDICT: PASS`, если blocker/major нет.",
+    "Не повышай minor до major только из-за неперечисленных деталей, которые исполнитель может безопасно выяснить в коде.",
+    "Последняя строка: `VERDICT: PASS` или `VERDICT: FAIL`."
   ].join("\n");
+}
+
+export function specReviewVerdict(text) {
+  const content = String(text || "");
+  const verdicts = [...content.matchAll(/^\s*VERDICT:\s*(PASS|FAIL)\s*$/gim)];
+  const reported = verdicts.at(-1)?.[1]?.toUpperCase();
+  if (reported === "PASS") return "PASS";
+  if (reported !== "FAIL") return "FAIL";
+
+  const severities = [...content.matchAll(
+    /^\s*(?:(?:[-*]|\d+[.)])\s*)?(?:\*\*)?(blocker|critical|major|minor)(?:\*\*)?\s*(?:[-—:]|\b)/gim
+  )].map((match) => match[1].toLowerCase());
+  if (severities.length > 0 && severities.every((severity) => severity === "minor")) return "PASS";
+  return "FAIL";
 }
 
 export function buildImplementPrompt({ task, plan, context = "", memory = [], attempt = 1, previousFailure = "" } = {}) {

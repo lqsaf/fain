@@ -72,7 +72,8 @@ import {
   buildRepairPrompt,
   buildReviewPrompt,
   buildSpecReviewPrompt,
-  promptVersionsLine
+  promptVersionsLine,
+  specReviewVerdict
 } from "./prompts.mjs";
 import { preflight, probeModels } from "./doctor.mjs";
 import { runUiSmoke, uiSummary } from "./ui.mjs";
@@ -581,7 +582,14 @@ async function phaseSpecReview({ task, context, plan, attempt }) {
   });
   rememberPhase("spec-review", result, { attempt });
   if (result.kind !== "ok") return { ...result, verdict: "ERROR" };
-  const verdict = /VERDICT:\s*PASS/i.test(result.text) ? "PASS" : "FAIL";
+  const verdict = specReviewVerdict(result.text);
+  if (verdict === "PASS" && /^\s*VERDICT:\s*FAIL\s*$/im.test(result.text)) {
+    log("spec-review.minor-only", {
+      phase: "spec-review",
+      model: result.model,
+      message: "review returned FAIL with minor-only findings; allowing implementation"
+    });
+  }
   return { ...result, verdict };
 }
 

@@ -12,6 +12,7 @@
 - Модели и порядок fallback задаются в `scripts/fa/models.mjs`; `FA_MODELS` задаёт общий список, а `FA_PLANNER_MODEL`, `FA_EXECUTOR_MODEL`, `FA_REPAIR_MODEL`, `FA_REVIEWER_MODEL` — роль-приоритеты.
 - Стандартное распределение: Gemini Flash-Lite планирует; XEROSHARC Sonnet исполняет и чинит, NVIDIA Nemotron — fallback. Gemini и Haiku не попадают в реализацию автоматически; ручной `FA_EXECUTOR_MODEL` остаётся явным override.
 - Планировщик не проверяет собственный план, а финальный reviewer исключает точные модели planner и последнего автора кода; если независимой модели нет, review не подменяется самооценкой.
+- Plan-review блокирует реализацию только при blocker/major; замечания minor остаются в отчёте, но не превращаются в два безрезультатных цикла и `[!]`.
 - Заблокированная задача делает job неуспешным (красным), даже если issue о блокировке создан штатно.
 - Ручной `workflow_dispatch` формы FA дают выбор модели по planner/executor/repair/reviewer; `inherit` применяет repo variable или стандартный роутинг. Scheduled-запуски продолжают использовать repo variables.
 - Стандартный список не полагается на неподтверждённый бесплатный каталог OpenCode или прямой Anthropic-ключ; в нём используются Gemini и XEROSHARC, NVIDIA NIM остаётся опциональным.

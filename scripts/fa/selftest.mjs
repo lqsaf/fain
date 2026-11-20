@@ -11,7 +11,7 @@ import { buildContext, expandFiles } from "./context.mjs";
 import { addMemory, failureFingerprint, loadMemory, repeatedFailureTrend, searchMemory } from "./memory.mjs";
 import { createRunState, isSuccessfulRun, loadRunState, saveRunState, setPhase } from "./state.mjs";
 import { readQueue } from "./queue.mjs";
-import { validatePrompts } from "./prompts.mjs";
+import { specReviewVerdict, validatePrompts } from "./prompts.mjs";
 import { TOOLS } from "./mcp-server.mjs";
 import { findChrome } from "./ui.mjs";
 import { LIMITS, ROOT, phaseTimeout } from "./config.mjs";
@@ -215,6 +215,10 @@ check("router.breaker", () => {
 check("prompts.contract", () => {
   const problems = validatePrompts();
   assert(problems.length === 0, problems.join("; "));
+  assert(specReviewVerdict("**minor — step 5:** Optional detail.\n\nVERDICT: FAIL") === "PASS", "minor-only plan feedback still blocks implementation");
+  assert(specReviewVerdict("**major — step 2:** Acceptance behavior is untestable.\n\nVERDICT: FAIL") === "FAIL", "major plan defect did not block implementation");
+  assert(specReviewVerdict("No findings.\n\nVERDICT: PASS") === "PASS", "an explicit passing plan review was rejected");
+  assert(specReviewVerdict("Review output without a valid verdict") === "FAIL", "malformed plan review was silently accepted");
 });
 
 check("context.build", () => {
