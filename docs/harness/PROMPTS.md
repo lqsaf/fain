@@ -53,7 +53,7 @@ npm run fa:eval -- --suite model --models google/gemini-3.1-flash-lite,nvidia/ne
 
 | Версия | Модель | Pass | Шаги | Токены | Время |
 | --- | --- | --- | --- | --- | --- |
-| `fa-v1` / `task-v1` | `nvidia/nemotron-3-ultra-550b-a55b` | — | — | — | — |
+| `fa-v1` / `task-v1` | `nvidia/kimi-k3.1-pro` | — | — | — | — |
 | `fa-v1` / `task-v1` | `google/gemini-3.1-flash-lite` | — | — | — | — |
 
 Обновлять при каждом принятом изменении промпта или модели. Значения брать из `fa/eval/<timestamp>.json`.

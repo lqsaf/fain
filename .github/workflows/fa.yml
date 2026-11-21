@@ -20,6 +20,12 @@ name: FA
         options:
           - inherit
           - google/gemini-3.1-flash-lite
+          - nvidia/kimi-k3.1-pro
+          - nvidia/step-5-preview
+          - nvidia/mistral-large-4-1t-a52b
+          - nvidia/glm-5.3-flash
+          - nvidia/minimax-m3.1-flash
+          - nvidia/laguna-xs-2.1
           - nvidia/nemotron-3-ultra-550b-a55b
         default: inherit
       executor_model:
@@ -28,6 +34,12 @@ name: FA
         options:
           - inherit
           - google/gemini-3.1-flash-lite
+          - nvidia/kimi-k3.1-pro
+          - nvidia/step-5-preview
+          - nvidia/mistral-large-4-1t-a52b
+          - nvidia/glm-5.3-flash
+          - nvidia/minimax-m3.1-flash
+          - nvidia/laguna-xs-2.1
           - nvidia/nemotron-3-ultra-550b-a55b
         default: inherit
       repair_model:
@@ -36,6 +48,12 @@ name: FA
         options:
           - inherit
           - google/gemini-3.1-flash-lite
+          - nvidia/kimi-k3.1-pro
+          - nvidia/step-5-preview
+          - nvidia/mistral-large-4-1t-a52b
+          - nvidia/glm-5.3-flash
+          - nvidia/minimax-m3.1-flash
+          - nvidia/laguna-xs-2.1
           - nvidia/nemotron-3-ultra-550b-a55b
         default: inherit
       reviewer_model:
@@ -44,6 +62,12 @@ name: FA
         options:
           - inherit
           - google/gemini-3.1-flash-lite
+          - nvidia/kimi-k3.1-pro
+          - nvidia/step-5-preview
+          - nvidia/mistral-large-4-1t-a52b
+          - nvidia/glm-5.3-flash
+          - nvidia/minimax-m3.1-flash
+          - nvidia/laguna-xs-2.1
           - nvidia/nemotron-3-ultra-550b-a55b
         default: inherit
 
@@ -148,10 +172,12 @@ jobs:
           # Единственное место выбора моделей — scripts/fa/models.mjs.
           # FA_MODELS (repo variable) переопределяет цепочку в формате provider/model#variant.
           FA_MODELS: ${{ vars.FA_MODELS }}
-          FA_PLANNER_MODEL: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.planner_model != 'inherit' && github.event.inputs.planner_model || vars.FA_PLANNER_MODEL }}
-          FA_EXECUTOR_MODEL: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.executor_model != 'inherit' && github.event.inputs.executor_model || vars.FA_EXECUTOR_MODEL }}
-          FA_REPAIR_MODEL: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.repair_model != 'inherit' && github.event.inputs.repair_model || vars.FA_REPAIR_MODEL }}
-          FA_REVIEWER_MODEL: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.reviewer_model != 'inherit' && github.event.inputs.reviewer_model || vars.FA_REVIEWER_MODEL }}
+          # `inherit` means use code defaults. Old repo role variables must not
+          # silently pin the executor to Gemini after a workflow update.
+          FA_PLANNER_MODEL: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.planner_model != 'inherit' && github.event.inputs.planner_model || '' }}
+          FA_EXECUTOR_MODEL: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.executor_model != 'inherit' && github.event.inputs.executor_model || '' }}
+          FA_REPAIR_MODEL: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.repair_model != 'inherit' && github.event.inputs.repair_model || '' }}
+          FA_REVIEWER_MODEL: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.reviewer_model != 'inherit' && github.event.inputs.reviewer_model || '' }}
           FA_RESET_AUTH_BREAKERS: ${{ github.event_name == 'workflow_dispatch' && 'true' || 'false' }}
           FA_ENABLED: ${{ vars.FA_ENABLED }}
           FA_TASK_TIMEOUT_MIN: ${{ vars.FA_TASK_TIMEOUT_MIN }}

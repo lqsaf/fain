@@ -9,15 +9,15 @@
 - Watchdog (`schedule: */30 * * * *`) поднимает следующий запуск, если очередь не пуста.
 - `concurrency: fa-loop` не даёт двум запускам работать одновременно.
 - Локальный запуск — тот же `scripts/fa/loop.mjs`, но только с `--force-local` и на чистом дереве.
-- Модели и порядок fallback задаются в `scripts/fa/models.mjs`; `FA_MODELS` задаёт общий список, а `FA_PLANNER_MODEL`, `FA_EXECUTOR_MODEL`, `FA_REPAIR_MODEL`, `FA_REVIEWER_MODEL` — роль-приоритеты.
-- Стандартное распределение: Gemini Flash-Lite планирует и проверяет; NVIDIA Nemotron исполняет и чинит. Если preferred provider недоступен/исчерпал квоту, роутер переключается на вторую разрешённую модель; старые XEROSHARC/OpenRouter overrides отфильтровываются и не блокируют запуск.
+- Модели и порядок fallback задаются в `scripts/fa/models.mjs`; `FA_MODELS` меняет предпочтения в общей цепочке, а стандартные кандидаты дополняют fallback. Роль-предпочтения провайдера сохраняются. Явный выбор модели каждой роли доступен в `workflow_dispatch`.
+- Стандартное распределение: Gemini Flash-Lite планирует и проверяет; NVIDIA Kimi K3.1 Pro исполняет и чинит, затем идут NVIDIA coding/agent модели и Nemotron, Gemini остаётся cross-provider fallback. Порядок ролей имеет приоритет над прежним общим fallback-порядком, чтобы старый список с Gemini первым не назначал Gemini executor.
 - Планировщик не проверяет собственный план, а финальный reviewer исключает точные модели planner и последнего автора кода; если независимой модели нет, review не подменяется самооценкой.
 - Plan-review блокирует реализацию только при blocker/major; замечания minor остаются в отчёте, но не превращаются в два безрезультатных цикла и `[!]`.
 - Заблокированная задача делает job неуспешным (красным), даже если issue о блокировке создан штатно.
-- Ручной `workflow_dispatch` формы FA дают выбор модели по planner/executor/repair/reviewer; `inherit` применяет repo variable или стандартный роутинг. Scheduled-запуски продолжают использовать repo variables.
-- В реестре и ручном workflow разрешены только Google Gemini и NVIDIA NIM. Gemini ключи ротируются по квоте; NVIDIA — основной исполнитель и repair. Общие и per-role repository variables могут менять порядок, но не обходят allowlist.
+- Ручной `workflow_dispatch` формы FA дают выбор модели по planner/executor/repair/reviewer; `inherit` использует стандартный роутинг. Старые `FA_*_MODEL` repo variables намеренно не передаются в workflow; `FA_MODELS` остаётся общим fallback list.
+- В реестре и ручном workflow разрешены только Google Gemini и NVIDIA NIM. Gemini ключи ротируются по квоте; NVIDIA — основной исполнитель и repair. Явный per-role выбор проходит только через workflow_dispatch и allowlist.
 - До пяти ключей Gemini (`GEMINI_API_KEY`, `GEMINI_API_KEY_2` … `_5`) могут ротироваться после quota/rate-limit; значения секретов не выводятся в логи.
-- NVIDIA DeepSeek V4.1 Flash был удалён провайдером; текущая конфигурация NIM использует Nemotron 3 Ultra. Ответы `410`/`end of life` теперь запускают fallback вместо повторного расхода попытки на ту же модель.
+- NVIDIA DeepSeek V4.1 Flash был удалён провайдером; Nemotron 3 Ultra оставлен последним NVIDIA fallback. Ответы `410`/`end of life` и async `202` (который OpenCode-compatible runner не умеет продолжать polling) запускают fallback вместо повторного расхода попытки на ту же модель.
 
 ## Лимиты (все в коде)
 

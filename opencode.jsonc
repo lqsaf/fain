@@ -44,6 +44,36 @@
         "apiKey": "{env:NVIDIA_API_KEY}"
       },
       "models": {
+        "kimi-k3.1-pro": {
+          "name": "Kimi K3.1 Pro (NVIDIA NIM)",
+          "modelID": "moonshotai/kimi-k3.1-pro",
+          "limit": { "context": 1048576, "output": 32768 }
+        },
+        "step-5-preview": {
+          "name": "Step 5 Preview (NVIDIA NIM)",
+          "modelID": "stepfun-ai/step-5-preview",
+          "limit": { "context": 1048576, "output": 32768 }
+        },
+        "mistral-large-4-1t-a52b": {
+          "name": "Mistral Large 4 (NVIDIA NIM)",
+          "modelID": "mistralai/mistral-large-4-1t-a52b",
+          "limit": { "context": 1000000, "output": 32768 }
+        },
+        "glm-5.3-flash": {
+          "name": "GLM-5.3-Flash (NVIDIA NIM)",
+          "modelID": "z-ai/glm-5.3-flash",
+          "limit": { "context": 1048576, "output": 32768 }
+        },
+        "minimax-m3.1-flash": {
+          "name": "MiniMax M3.1 Flash (NVIDIA NIM)",
+          "modelID": "minimaxai/minimax-m3.1-flash",
+          "limit": { "context": 200000, "output": 16384 }
+        },
+        "laguna-xs-2.1": {
+          "name": "Laguna XS 2.1 (NVIDIA NIM)",
+          "modelID": "poolside/laguna-xs-2.1",
+          "limit": { "context": 262144, "output": 16384 }
+        },
         "nemotron-3-ultra-550b-a55b": {
           "name": "Nemotron 3 Ultra 550B A55B",
           "modelID": "nvidia/nemotron-3-ultra-550b-a55b",

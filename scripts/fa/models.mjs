@@ -36,6 +36,72 @@ export const DEFAULT_MODELS = [
     notes: "Gemini Flash-Lite; planner/reviewer first choice and fallback for implementation"
   },
   {
+    id: "nvidia/kimi-k3.1-pro",
+    label: "Kimi K3.1 Pro (NVIDIA NIM)",
+    provider: "nvidia",
+    roles: ["planner", "executor", "repair", "reviewer"],
+    context: 1_048_576,
+    output: 32_768,
+    tpm: 250_000,
+    cost: { input: 0, output: 0 },
+    notes: "NVIDIA-hosted Kimi K3.1 Pro; 1M context and agent/tool support"
+  },
+  {
+    id: "nvidia/step-5-preview",
+    label: "Step 5 Preview (NVIDIA NIM)",
+    provider: "nvidia",
+    roles: ["planner", "executor", "repair", "reviewer"],
+    context: 1_048_576,
+    output: 32_768,
+    tpm: 250_000,
+    cost: { input: 0, output: 0 },
+    notes: "NVIDIA-hosted Step 5 Preview; repository-level software engineering and agentic tool use"
+  },
+  {
+    id: "nvidia/mistral-large-4-1t-a52b",
+    label: "Mistral Large 4 (NVIDIA NIM)",
+    provider: "nvidia",
+    roles: ["planner", "executor", "repair", "reviewer"],
+    context: 1_000_000,
+    output: 32_768,
+    tpm: 250_000,
+    cost: { input: 0, output: 0 },
+    notes: "NVIDIA-hosted Mistral Large 4; reasoning, coding and tool calling"
+  },
+  {
+    id: "nvidia/glm-5.3-flash",
+    label: "GLM-5.3-Flash (NVIDIA NIM)",
+    provider: "nvidia",
+    roles: ["planner", "executor", "repair", "reviewer"],
+    context: 1_048_576,
+    output: 32_768,
+    tpm: 250_000,
+    cost: { input: 0, output: 0 },
+    notes: "NVIDIA-hosted GLM-5.3-Flash; long-context coding and native tool calling"
+  },
+  {
+    id: "nvidia/minimax-m3.1-flash",
+    label: "MiniMax M3.1 Flash (NVIDIA NIM)",
+    provider: "nvidia",
+    roles: ["planner", "executor", "repair", "reviewer"],
+    context: 200_000,
+    output: 16_384,
+    tpm: 250_000,
+    cost: { input: 0, output: 0 },
+    notes: "NVIDIA-hosted MiniMax M3.1 Flash; coding and agentic workflow candidate"
+  },
+  {
+    id: "nvidia/laguna-xs-2.1",
+    label: "Laguna XS 2.1 (NVIDIA NIM)",
+    provider: "nvidia",
+    roles: ["planner", "executor", "repair", "reviewer"],
+    context: 262_144,
+    output: 16_384,
+    tpm: 250_000,
+    cost: { input: 0, output: 0 },
+    notes: "NVIDIA-hosted Poolside model optimized for agentic coding"
+  },
+  {
     id: "nvidia/nemotron-3-ultra-550b-a55b",
     label: "Nemotron 3 Ultra (NVIDIA NIM)",
     provider: "nvidia",
@@ -130,17 +196,26 @@ function availableFilter(env) {
   };
 }
 
+function prioritizeRole(models, role) {
+  const order = DEFAULT_PROVIDER_ORDER[role] || [];
+  return models.sort((left, right) => order.indexOf(left.provider) - order.indexOf(right.provider));
+}
+
 /**
  * Полная цепочка для отображения и fallback.
- * `FA_MODELS` заменяет порядок, но не отменяет роли.
+ * `FA_MODELS` задаёт предпочтения; стандартные модели дополняют цепочку fallback.
  */
 export function modelChain(env = process.env) {
   const configured = parseModels(env.FA_MODELS);
   const filter = availableFilter(env);
   const allowedConfigured = configured.filter(filter);
-  const models = allowedConfigured.length > 0
-    ? allowedConfigured
-    : DEFAULT_MODELS.map((model) => ({ ...model })).filter(filter);
+  const configuredIds = new Set(allowedConfigured.map((model) => model.id));
+  const models = [
+    ...allowedConfigured,
+    ...DEFAULT_MODELS
+      .map((model) => ({ ...model }))
+      .filter((model) => filter(model) && !configuredIds.has(model.id))
+  ];
 
   return models
     .map((model) => ({
@@ -175,15 +250,19 @@ export function modelsForRole(role, env = process.env, { fallback = true } = {})
         keyNames: providerKeys(model.provider)
       }))
       .filter((model) => model.available);
-    if (selected.length > 0) return selected;
+    if (selected.length > 0) {
+      const selectedIds = new Set(selected.map((model) => model.id));
+      const fallbackModels = prioritizeRole(
+        availableModels(env)
+          .map((model) => ({ ...model, role }))
+          .filter((model) => Array.isArray(model.roles) && model.roles.includes(role) && !selectedIds.has(model.id)),
+        role
+      );
+      return [...selected, ...fallbackModels];
+    }
   }
 
-  const base = availableModels(env).map((model) => ({ ...model, role }));
-  const configuredModels = parseModels(env.FA_MODELS).filter(availableFilter(env));
-  if (configuredModels.length === 0) {
-    const order = DEFAULT_PROVIDER_ORDER[role] || [];
-    base.sort((left, right) => order.indexOf(left.provider) - order.indexOf(right.provider));
-  }
+  const base = prioritizeRole(availableModels(env).map((model) => ({ ...model, role })), role);
   const preferred = base.filter((model) => Array.isArray(model.roles) && model.roles.includes(role));
   if (preferred.length > 0 || !fallback) return preferred;
 
@@ -215,7 +294,7 @@ export function classifyFailure(detail) {
   }
 
   if (
-    /overloaded|service unavailable|upstream|fetch failed|network|econn|etimedout|\b50[234]\b|(?:\b404\b|\b410\b)|invalid model reference|model not found|unknown model|no model is available|end of life|no longer available|retired model/i.test(
+    /overloaded|service unavailable|upstream|fetch failed|network|econn|etimedout|\b50[234]\b|(?:\b202\b|\b404\b|\b410\b)|invalid model reference|model not found|unknown model|no model is available|end of life|no longer available|retired model|request is pending/i.test(
       text
     )
   ) {

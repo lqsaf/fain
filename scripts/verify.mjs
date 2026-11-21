@@ -581,31 +581,56 @@ async function checkModelRegistry() {
   for (const role of models.MODEL_ROLES) {
     if (!Array.isArray(roles[role]) || roles[role].length === 0) problems.push(`models.mjs: role ${role} is empty`);
   }
-  const nvidiaModel = models.DEFAULT_MODELS.find((model) => model.provider === "nvidia");
-  if (!nvidiaModel || nvidiaModel.id !== "nvidia/nemotron-3-ultra-550b-a55b") {
+  const nvidiaModel = models.DEFAULT_MODELS.find((model) => model.id === "nvidia/nemotron-3-ultra-550b-a55b");
+  if (!nvidiaModel || nvidiaModel.provider !== "nvidia") {
     problems.push("models.mjs: NVIDIA NIM must use the active Nemotron model");
   }
-  if (new Set(models.DEFAULT_MODELS.map((model) => model.provider)).size !== 2) {
-    problems.push("models.mjs: defaults must contain exactly Gemini and NVIDIA");
+  const configuredNvidiaIds = [
+    "nvidia/kimi-k3.1-pro",
+    "nvidia/step-5-preview",
+    "nvidia/mistral-large-4-1t-a52b",
+    "nvidia/glm-5.3-flash",
+    "nvidia/minimax-m3.1-flash",
+    "nvidia/laguna-xs-2.1",
+    "nvidia/nemotron-3-ultra-550b-a55b"
+  ];
+  const nvidiaIds = new Set(models.DEFAULT_MODELS.filter((model) => model.provider === "nvidia").map((model) => model.id));
+  for (const id of configuredNvidiaIds) {
+    if (!nvidiaIds.has(id)) problems.push(`models.mjs: NVIDIA catalog model ${id} is missing`);
+  }
+  if (models.DEFAULT_MODELS.some((model) => !models.ALLOWED_PROVIDERS.has(model.provider))) {
+    problems.push("models.mjs: defaults must contain only Gemini and NVIDIA");
   }
   const legacyEnv = {
     ...process.env,
     FA_MODELS: "xerosharc/claude-sonnet-5-5,openrouter/baidu/ernie-5.5-flash-preview:free",
+    FA_PLANNER_MODEL: "",
+    FA_EXECUTOR_MODEL: "",
+    FA_REPAIR_MODEL: "",
+    FA_REVIEWER_MODEL: "",
     FA_AVAILABLE_MODELS: "",
     FA_EXCLUDE_MODELS: "",
     FA_ALLOW_OPTIONAL: "",
     GEMINI_API_KEY: "verify-test-key",
     GOOGLE_GENERATIVE_AI_API_KEY: "",
     GOOGLE_API_KEY: "",
-    NVIDIA_API_KEY: "verify-test-key"
+    NVIDIA_API_KEY: "verify-test-key",
+    NVIDIA_NIM_API_KEY: ""
   };
   const defaultExecutor = models.modelsForRole("executor", {
     ...legacyEnv,
     FA_MODELS: "",
     FA_EXECUTOR_MODEL: ""
   }).map((model) => model.id);
-  if (defaultExecutor[0] !== nvidiaModel?.id || !defaultExecutor.includes("google/gemini-3.1-flash-lite")) {
-    problems.push("models.mjs: executor must prefer NVIDIA and retain Gemini fallback");
+  if (defaultExecutor[0] !== "nvidia/kimi-k3.1-pro" || !defaultExecutor.includes("google/gemini-3.1-flash-lite")) {
+    problems.push("models.mjs: executor must prefer Kimi via NVIDIA and retain Gemini fallback");
+  }
+  const mixedLegacy = models.modelsForRole("executor", {
+    ...legacyEnv,
+    FA_MODELS: "google/gemini-3.1-flash-lite,nvidia/kimi-k3.1-pro,nvidia/nemotron-3-ultra-550b-a55b"
+  });
+  if (mixedLegacy[0]?.id !== "nvidia/kimi-k3.1-pro") {
+    problems.push("models.mjs: legacy FA_MODELS ordering overrode the NVIDIA executor default");
   }
   for (const role of models.MODEL_ROLES) {
     const roleEnv = { ...legacyEnv, [`FA_${role.toUpperCase()}_MODEL`]: "xerosharc/claude-sonnet-5-5" };
@@ -618,11 +643,30 @@ async function checkModelRegistry() {
     FA_MODELS: "",
     FA_AVAILABLE_MODELS: "xerosharc/claude-sonnet-5-5"
   });
-  if (staleProbe[0]?.id !== nvidiaModel?.id) {
-    problems.push("models.mjs: stale provider probe blocked the NVIDIA executor default");
+  if (staleProbe[0]?.id !== "nvidia/kimi-k3.1-pro") {
+    problems.push("models.mjs: stale provider probe blocked the Kimi executor default");
   }
   if (!read("opencode.jsonc").includes('"modelID": "nvidia/nemotron-3-ultra-550b-a55b"')) {
     problems.push("opencode.jsonc: NVIDIA NIM modelID does not match the live API model ID");
+  }
+  const config = JSON.parse(stripJsonc(read("opencode.jsonc")));
+  const configuredModels = config.providers?.nvidia?.models || {};
+  const requiredModelIds = {
+    "kimi-k3.1-pro": "moonshotai/kimi-k3.1-pro",
+    "step-5-preview": "stepfun-ai/step-5-preview",
+    "mistral-large-4-1t-a52b": "mistralai/mistral-large-4-1t-a52b",
+    "glm-5.3-flash": "z-ai/glm-5.3-flash",
+    "minimax-m3.1-flash": "minimaxai/minimax-m3.1-flash",
+    "laguna-xs-2.1": "poolside/laguna-xs-2.1"
+  };
+  const workflow = read(".github/workflows/fa.yml");
+  for (const [id, modelID] of Object.entries(requiredModelIds)) {
+    if (configuredModels[id]?.modelID !== modelID) {
+      problems.push(`opencode.jsonc: NVIDIA model ${id} must use API ID ${modelID}`);
+    }
+    if (!workflow.includes(`- ${id}`)) {
+      problems.push(`fa.yml: workflow_dispatch is missing NVIDIA model choice nvidia/${id}`);
+    }
   }
   if (/xerosharc|openrouter/i.test(read("opencode.jsonc"))) {
     problems.push("opencode.jsonc: removed provider configuration remains");
@@ -630,12 +674,16 @@ async function checkModelRegistry() {
   if (/XEROSHARC_API_KEY|OPENROUTER_API_KEY/.test(read(".github/workflows/fa.yml"))) {
     problems.push("fa.yml: removed provider secrets remain in workflow");
   }
+  if (/vars\.FA_(?:PLANNER|EXECUTOR|REPAIR|REVIEWER)_MODEL/.test(workflow)) {
+    problems.push("fa.yml: stale repository role variables can override the default route");
+  }
 
   assert(models.classifyFailure("429 too many requests") === "quota", "models.mjs: quota classification is broken");
   assert(
     models.classifyFailure("provider.invalid-request: model reached end of life and is no longer available (410)") === "unavailable",
     "models.mjs: retired model errors must trigger fallback"
   );
+  assert(models.classifyFailure("HTTP status 202: request is pending") === "unavailable", "models.mjs: asynchronous responses must trigger fallback");
   assert(models.classifyFailure("VERDICT: FAIL") === "other", "models.mjs: code failure must not be treated as quota");
   assert(models.classifyFailure("context_length_exceeded") === "context", "models.mjs: context classification is broken");
   assert(problems.length === 0, problems.slice(0, 12).join("; "));

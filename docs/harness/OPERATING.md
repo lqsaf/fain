@@ -7,7 +7,7 @@ FA живёт в GitHub Actions и не требует ноутбука. Это�
 1. **Ключи провайдеров.** `Settings → Secrets and variables → Actions → New repository secret`.
    Добавьте хотя бы один `GEMINI_API_KEY` (planner/reviewer и fallback для executor/repair) и `NVIDIA_API_KEY` либо `NVIDIA_NIM_API_KEY` (основной executor/repair). Для ротации Gemini можно добавить `GEMINI_API_KEY_2` … `_5`.
    Если ключа провайдера нет, его модели пропускаются; preflight требует хотя бы одну доступную модель на каждую роль.
-2. **Модели.** В `Actions → FA → Run workflow` можно отдельно выбрать planner, executor, repair и reviewer; `inherit` использует repo variables `FA_PLANNER_MODEL`, `FA_EXECUTOR_MODEL`, `FA_REPAIR_MODEL`, `FA_REVIEWER_MODEL`, а если они не заданы — стандартный роутинг. Расписание cron использует repo variables и стандартный роутинг. `FA_MODELS` остаётся общим списком fallback.
+2. **Модели.** В `Actions → FA → Run workflow` можно отдельно выбрать planner, executor, repair и reviewer; `inherit` означает стандартный роутинг из `scripts/fa/models.mjs`. Расписание также использует стандартный роутинг; устаревшие per-role repo variables игнорируются, чтобы не прикрепить исполнение к Gemini. `FA_MODELS` остаётся общим списком fallback, но предпочтение provider для каждой роли сохраняется.
 3. **Права.** В `Settings → Actions → General → Workflow permissions` разрешить `Read and write permissions`.
 4. **Branch protection для `main`.** Только PR, обязательный check `fa-verify`, запрет force-push и удаления. Merge делает человек. Заблокированная задача теперь завершает FA job с ошибкой, чтобы `done=0, blocked>0` не выглядело успешным запуском.
 5. **Опционально `FA_PAT`.** Fine-grained token с правами `contents`, `pull-requests`, `issues`. Нужен, чтобы PR, созданный FA, запускал проверки: push с `GITHUB_TOKEN` не триггерит другие workflow.
@@ -21,11 +21,7 @@ FA живёт в GitHub Actions и не требует ноутбука. Это�
 
 | Переменная | По умолчанию | Смысл |
 | --- | --- | --- |
-| `FA_MODELS` | пусто, стандартный список из кода | общий упорядоченный список моделей; провайдеры вне Google/NVIDIA отфильтровываются |
-| `FA_PLANNER_MODEL` | пусто | предпочтение моделей планировщика |
-| `FA_EXECUTOR_MODEL` | пусто | предпочтение моделей исполнителя |
-| `FA_REPAIR_MODEL` | пусто | предпочтение моделей ремонта |
-| `FA_REVIEWER_MODEL` | пусто | предпочтение моделей независимого ревью |
+| `FA_MODELS` | пусто, стандартный список из кода | предпочтения общего fallback; стандартные кандидаты добавляются в конец, провайдеры вне Google/NVIDIA отфильтровываются |
 | `FA_ENABLED` | включено | глобальный выключатель |
 | `FA_TASK_TIMEOUT_MIN` | `25` | таймаут одной задачи |
 | `FA_RUN_BUDGET_MIN` | `90` | бюджет времени запуска |
@@ -36,9 +32,11 @@ FA живёт в GitHub Actions и не требует ноутбука. Это�
 
 Секреты и переменные не хранятся в репозитории. В `.env` и `.dev.vars` FA не заглядывает.
 
-При `inherit` стандартный маршрут предпочитает Gemini Flash-Lite для планирования и ревью, NVIDIA Nemotron — для реализации и ремонта. Обе модели доступны в fallback-цепочках всех ролей. Явно выбранный `FA_*_MODEL` меняет предпочтение только в пределах разрешённых провайдеров; старые XEROSHARC/OpenRouter значения автоматически пропускаются.
+При `inherit` стандартный маршрут предпочитает Gemini Flash-Lite для планирования и ревью, NVIDIA Kimi K3.1 Pro — для реализации и ремонта. При исчерпании/недоступности NVIDIA роутер проверяет остальные доступные NVIDIA coding models, Nemotron, затем Gemini. Явный выбор роли в форме workflow меняет её предпочтение. Старые XEROSHARC/OpenRouter значения в `FA_MODELS` автоматически пропускаются.
 
-В NVIDIA NIM настроен `nvidia/nemotron-3-ultra-550b-a55b`. Выбор в ручной форме workflow сбрасывает сохранённые auth-breakers, чтобы после исправления/замены ключа провайдер сразу перепроверился; расписание не сбрасывает breakers.
+NVIDIA route сейчас включает Kimi K3.1 Pro, Step 5 Preview, Mistral Large 4, GLM-5.3-Flash, MiniMax M3.1 Flash, Laguna XS 2.1 и Nemotron 3 Ultra. Их model IDs сверены с публичным NVIDIA Integrate `/v1/models` каталогом 21 ноября 2026 года; этот каталог подтверждает наличие endpoint ID, но не гарантирует, что конкретный API key имеет доступ или что все модели принимают одинаковую форму вызова. Недоступная модель должна fallback-нуться; первые CI вызовы нужны для проверки реального доступа к аккаунту.
+
+NVIDIA route начинается с `nvidia/kimi-k3.1-pro`, а `nvidia/nemotron-3-ultra-550b-a55b` остаётся отдельной резервной моделью. Выбор в ручной форме workflow сбрасывает сохранённые auth-breakers, чтобы после исправления/замены ключа провайдер сразу перепроверился; расписание не сбрасывает breakers.
 
 ## Первый запуск
 

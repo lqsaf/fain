@@ -24,8 +24,8 @@
 - Ровно одна задача за запуск: `loop.mjs` после первой задачи выходит. `mode=run` и `mode=once`
   эквивалентны, `once` оставлен как совместимый алиас.
 - GitHub Actions watchdog — `*/30 * * * *`, job timeout 90 минут.
-- Единый реестр моделей — `scripts/fa/models.mjs`: разрешены только Gemini и NVIDIA NIM Nemotron 3 Ultra. Gemini предпочитается для планирования/ревью, NVIDIA — для реализации/починки; каждая роль сохраняет cross-provider fallback.
-- Ручной `workflow_dispatch` также принимает per-role model choices; `inherit` сохраняет настройки repo variables `FA_MODELS` и `FA_PLANNER_MODEL`/`FA_EXECUTOR_MODEL`/`FA_REPAIR_MODEL`/`FA_REVIEWER_MODEL`.
+- Единый реестр моделей — `scripts/fa/models.mjs`: разрешены только Gemini и NVIDIA NIM catalog models. Gemini предпочитается для планирования/ревью, NVIDIA — для реализации/починки; каждая роль сохраняет cross-provider fallback.
+- Ручной `workflow_dispatch` принимает per-role model choices; `inherit` использует role-aware default chain. `FA_MODELS` меняет предпочтения общего fallback, стандартные модели дополняют цепочку, а role-priority провайдера сохраняется.
 - Gemini secrets `GEMINI_API_KEY` … `GEMINI_API_KEY_5` ротируются при quota; Actions cache сохраняет модельное состояние, память и до пяти checkpoint-запусков.
 - `--model` передаётся только оркестратором; в `.opencode/agents/*.md` модели нет.
 - Ошибки `quota`, `auth`, `unavailable` классифицируются в `models.mjs`.

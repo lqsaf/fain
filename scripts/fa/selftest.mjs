@@ -46,6 +46,7 @@ function assert(condition, message) {
 check("models.classify", () => {
   assert(classifyFailure("429 Too Many Requests") === "quota", "429 is not quota");
   assert(classifyFailure("401 Unauthorized") === "auth", "401 is not auth");
+  assert(classifyFailure("HTTP status 202: request is pending") === "unavailable", "async HTTP response is not routed to fallback");
   assert(classifyFailure("provider.invalid-request: model reached end of life and is no longer available (410)") === "unavailable", "retired model is not classified for fallback");
   assert(classifyFailure("context_length_exceeded") === "context", "context is not classified");
   assert(classifyFailure("VERDICT: FAIL") === "other", "verdict is not a model failure");
@@ -62,6 +63,12 @@ check("models.defaults", () => {
   assert(!ids.some((id) => id.includes("deepseek-v4.1-flash")), "retired NVIDIA DeepSeek model remains enabled");
   const opencodeConfig = readFileSync(join(ROOT, "opencode.jsonc"), "utf8");
   assert(opencodeConfig.includes('"modelID": "nvidia/nemotron-3-ultra-550b-a55b"'), "NVIDIA provider does not send its required API model ID");
+  assert(opencodeConfig.includes('"modelID": "moonshotai/kimi-k3.1-pro"'), "Kimi K3.1 Pro is not configured for NVIDIA NIM");
+  assert(opencodeConfig.includes('"modelID": "stepfun-ai/step-5-preview"'), "Step 5 Preview is not configured for NVIDIA NIM");
+  assert(opencodeConfig.includes('"modelID": "mistralai/mistral-large-4-1t-a52b"'), "Mistral Large 4 is not configured for NVIDIA NIM");
+  assert(opencodeConfig.includes('"modelID": "z-ai/glm-5.3-flash"'), "GLM-5.3-Flash is not configured for NVIDIA NIM");
+  assert(opencodeConfig.includes('"modelID": "minimaxai/minimax-m3.1-flash"'), "MiniMax M3.1 Flash is not configured for NVIDIA NIM");
+  assert(opencodeConfig.includes('"modelID": "poolside/laguna-xs-2.1"'), "Laguna XS 2.1 is not configured for NVIDIA NIM");
   assert(!opencodeConfig.includes("xerosharc") && !opencodeConfig.includes("openrouter"), "removed providers remain configured");
   assert(!ids.some((id) => id.startsWith("opencode/") || id.startsWith("anthropic/")), "unconfigured free/direct provider remains in defaults");
   assert(!ids.some((id) => id.includes("deepseek-v4.1-flash-free")), "unverified OpenCode DeepSeek free model remains enabled");
@@ -128,7 +135,12 @@ check("models.roles", () => {
     },
     exclude: ["google/gemini-3.1-flash-lite"]
   });
-  assert(independent.length === 1 && independent[0].id === "nvidia/nemotron-3-ultra-550b-a55b", "review exclusion did not select the independent provider");
+  assert(
+    independent.length > 0 &&
+      independent[0].id === "nvidia/nemotron-3-ultra-550b-a55b" &&
+      independent.every((model) => model.provider === "nvidia"),
+    "review exclusion did not select only independent provider candidates"
+  );
 });
 
 check("models.executor-default", () => {
@@ -145,8 +157,9 @@ check("models.executor-default", () => {
     NVIDIA_API_KEY: "test-key"
   };
   const executorIds = modelsForRole("executor", env).map((model) => model.id);
-  assert(executorIds[0] === "nvidia/nemotron-3-ultra-550b-a55b", "NVIDIA is not the default executor");
-  assert(executorIds[1] === "google/gemini-3.1-flash-lite", "Gemini is missing as executor fallback");
+  assert(executorIds[0] === "nvidia/kimi-k3.1-pro", "Kimi K3.1 Pro is not the default executor");
+  assert(executorIds.includes("nvidia/nemotron-3-ultra-550b-a55b"), "Nemotron is missing as an NVIDIA fallback");
+  assert(executorIds.at(-1) === "google/gemini-3.1-flash-lite", "Gemini is missing after NVIDIA executor candidates");
   assert(modelsForRole("repair", env)[0]?.provider === "nvidia", "NVIDIA is not the default repair model");
   assert(modelsForRole("planner", env)[0]?.provider === "google", "Gemini is not the default planner");
   assert(modelsForRole("reviewer", env)[0]?.provider === "google", "Gemini is not the default reviewer");
@@ -155,6 +168,11 @@ check("models.executor-default", () => {
     FA_MODELS: "xerosharc/claude-sonnet-5-5,openrouter/baidu/ernie-5.5-flash-preview:free"
   });
   assert(legacy.map((model) => model.id).join(",") === executorIds.join(","), "legacy provider settings did not fall back to allowed defaults");
+  const mixedLegacy = modelsForRole("executor", {
+    ...env,
+    FA_MODELS: "google/gemini-3.1-flash-lite,nvidia/kimi-k3.1-pro,nvidia/nemotron-3-ultra-550b-a55b"
+  });
+  assert(mixedLegacy[0]?.id === "nvidia/kimi-k3.1-pro", "legacy FA_MODELS ordering overrode the NVIDIA executor default");
   const staleProbe = modelsForRole("executor", {
     ...env,
     FA_MODELS: "",
@@ -166,6 +184,15 @@ check("models.executor-default", () => {
     FA_EXECUTOR_MODEL: "xerosharc/claude-sonnet-5-5"
   });
   assert(legacyOverride.map((model) => model.id).join(",") === executorIds.join(","), "legacy executor override blocked allowed defaults");
+  const selectedWithFallback = modelsForRole("executor", {
+    ...env,
+    FA_EXECUTOR_MODEL: "nvidia/kimi-k3.1-pro"
+  });
+  assert(
+    selectedWithFallback[0]?.id === "nvidia/kimi-k3.1-pro" &&
+      selectedWithFallback.some((model) => model.id === executorIds.at(-1)),
+    "explicit model selection removed fallback candidates"
+  );
   const geminiOnly = modelsForRole("executor", { ...env, NVIDIA_API_KEY: "", NVIDIA_NIM_API_KEY: "" });
   assert(geminiOnly.length === 1 && geminiOnly[0].id === "google/gemini-3.1-flash-lite", "Gemini was not used when NVIDIA is unavailable");
 });
