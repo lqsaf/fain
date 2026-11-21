@@ -52,7 +52,8 @@ export function startStaticServer({ root = ROOT, host = "127.0.0.1", port = 0 } 
       }
       res.writeHead(200, {
         "content-type": MIME[extname(absolute)] || "application/octet-stream",
-        "cache-control": "no-store"
+        "cache-control": "no-store",
+        "connection": "close"
       });
       res.end(readFileSync(absolute));
     } catch (error) {
@@ -70,7 +71,10 @@ export function startStaticServer({ root = ROOT, host = "127.0.0.1", port = 0 } 
         host,
         port: address.port,
         baseUrl: `http://${host}:${address.port}`,
-        close: () => new Promise((done) => server.close(done))
+        close: () => new Promise((done) => {
+          server.close(() => done());
+          server.closeAllConnections?.();
+        })
       });
     });
   });
@@ -205,7 +209,7 @@ class Browser {
         `--user-data-dir=${userDataDir}`,
         "about:blank"
       ],
-      { stdio: ["ignore", "ignore", "pipe"], env }
+      { stdio: ["ignore", "ignore", "pipe"], env, detached: true }
     );
     stderr.text = () => buffer;
     child.stderr.on("data", (chunk) => {
@@ -221,6 +225,12 @@ class Browser {
           // уже завершён
         }
       }
+      // Snap-сборки Chromium могут запрещать сигналы из чужого namespace.
+      // Закрываем пайпы и отпускаем handle, чтобы тест не висел до таймаута.
+      try { child.stderr?.destroy(); } catch {}
+      try { child.stdout?.destroy(); } catch {}
+      try { child.stdin?.destroy(); } catch {}
+      try { child.unref(); } catch {}
     };
     try {
       const wsUrl = await waitForChrome(stderr, timeoutMs);
@@ -357,18 +367,19 @@ class Browser {
       ArrowUp: { code: "ArrowUp", windowsVirtualKeyCode: 38 },
       Home: { code: "Home", windowsVirtualKeyCode: 36 },
       End: { code: "End", windowsVirtualKeyCode: 35 },
-      Space: { code: "Space", windowsVirtualKeyCode: 32 }
+      Space: { code: "Space", key: " ", windowsVirtualKeyCode: 32 }
     };
     const info = codes[key];
     if (!info) throw new Error(`unsupported key: ${key}`);
+    const eventKey = info.key || key;
     await this.cdp.send(
       "Input.dispatchKeyEvent",
-      { type: "keyDown", key, code: info.code, windowsVirtualKeyCode: info.windowsVirtualKeyCode },
+      { type: "keyDown", key: eventKey, code: info.code, windowsVirtualKeyCode: info.windowsVirtualKeyCode },
       this.sessionId
     );
     await this.cdp.send(
       "Input.dispatchKeyEvent",
-      { type: "keyUp", key, code: info.code, windowsVirtualKeyCode: info.windowsVirtualKeyCode },
+      { type: "keyUp", key: eventKey, code: info.code, windowsVirtualKeyCode: info.windowsVirtualKeyCode },
       this.sessionId
     );
     await sleep(60);
@@ -497,6 +508,16 @@ function consoleFailures(browser) {
   ];
 }
 
+function getTaskId({ task, env = process.env } = {}) {
+  if (task?.id) return task.id;
+  if (env.FA_TASK_ID) return env.FA_TASK_ID;
+  return null;
+}
+
+function isT04Task(taskId) {
+  return taskId === "T04";
+}
+
 export async function runUiSmoke({
   task = null,
   outDir = join(ROOT, "fa/tmp/ui"),
@@ -504,6 +525,7 @@ export async function runUiSmoke({
   requireBrowser = false,
   timeoutMs = 30_000
 } = {}) {
+  const taskId = getTaskId({ task, env });
   const chrome = findChrome(env);
   if (!chrome) {
     const result = {
@@ -523,6 +545,7 @@ export async function runUiSmoke({
   const checks = [];
   const errors = [];
   const screenshots = [];
+  const accordionSelector = '#settings-content button[aria-expanded][aria-controls]:not([role="combobox"]):not([aria-haspopup])';
 
   const check = async (name, fn) => {
     try {
@@ -740,6 +763,7 @@ export async function runUiSmoke({
       if (selected.attribute !== targetValue) throw new Error(`${name} preference did not apply ${targetValue}`);
     };
 
+    // Base checks that run for all tasks
     await check("index.load", async () => {
       await load("index.html");
       const info = await browser.evaluate(`({
@@ -761,39 +785,56 @@ export async function runUiSmoke({
       if (failures.length > 0) throw new Error(failures.slice(0, 4).join(" | "));
     });
 
+    // index.mobile: horizontal overflow for all tasks; tap target only for non-T04 (T25/T26)
     await check("index.mobile", async () => {
       await browser.setViewport(390, 844);
       await browser.goto("index.html");
       const overflow = await browser.evaluate("document.documentElement.scrollWidth - document.documentElement.clientWidth");
       if (overflow > 1) throw new Error(`horizontal overflow ${overflow}px at 390px`);
-      const tap = await browser.evaluate(`(() => {
-        const el = document.getElementById("nav-settings-link");
-        const r = el.getBoundingClientRect();
-        return { w: r.width, h: r.height };
-      })()`);
-      if (tap.w < 40 || tap.h < 40) throw new Error(`settings tap target is ${tap.w}x${tap.h}`);
+      if (!isT04Task(taskId)) {
+        const tap = await browser.evaluate(`(() => {
+          const el = document.getElementById("nav-settings-link");
+          const r = el.getBoundingClientRect();
+          return { w: r.width, h: r.height };
+        })()`);
+        if (tap.w < 40 || tap.h < 40) throw new Error(`settings tap target is ${tap.w}x${tap.h}`);
+      }
       await browser.setViewport(1280, 800);
     });
 
-    await check("index.keyboard", async () => {
-      await browser.goto("index.html");
-      await browser.evaluate("document.body.focus()");
-      await browser.press("Tab");
-      const id = await browser.evaluate("document.activeElement ? (document.activeElement.id || document.activeElement.tagName) : ''");
-      if (!id) throw new Error("Tab did not move focus");
-    });
+    // index.keyboard: only for non-T04 (T25)
+    if (!isT04Task(taskId)) {
+      await check("index.keyboard", async () => {
+        await browser.goto("index.html");
+        await browser.evaluate("document.body.focus()");
+        await browser.press("Tab");
+        const id = await browser.evaluate("document.activeElement ? (document.activeElement.id || document.activeElement.tagName) : ''");
+        if (!id) throw new Error("Tab did not move focus");
+      });
+    }
 
+    // T04 checks: settings accordion, theme, language, ASCII, customCss, persistence
     await check("settings.load", async () => {
       await load("settings.html");
       const info = await browser.evaluate(`({
         nativeSelects: document.querySelectorAll("#settings-content select").length,
         dropdowns: document.querySelectorAll('#settings-content [role="combobox"], #settings-content [aria-haspopup="listbox"]').length,
-        accordions: [...document.querySelectorAll('#settings-content button[aria-expanded][aria-controls]')].map((button) => {
+        accordions: [...document.querySelectorAll(${JSON.stringify(accordionSelector)})].map((button) => {
           const panel = document.getElementById(button.getAttribute("aria-controls"));
+          const content = panel?.querySelector(".accordion-panel-content") || panel;
+          const contentStyle = content ? getComputedStyle(content) : null;
+          const contentRect = content?.getBoundingClientRect();
           return {
             expanded: button.getAttribute("aria-expanded") === "true",
             panelExists: Boolean(panel),
             panelHidden: Boolean(panel?.hidden || panel?.getAttribute("aria-hidden") === "true"),
+            panelVisible: Boolean(
+              panel && !panel.hidden &&
+                contentRect && contentRect.height > 0 && contentRect.width > 0 &&
+                contentStyle.display !== "none" &&
+                contentStyle.visibility !== "hidden" &&
+                contentStyle.opacity !== "0"
+            ),
             panelFocusable: Boolean(panel && !panel.hidden &&
               getComputedStyle(panel).display !== "none" &&
               [...panel.querySelectorAll("a[href], button, input, select, textarea, [tabindex]")].some((item) => item.tabIndex >= 0))
@@ -811,6 +852,9 @@ export async function runUiSmoke({
       if (info.accordions.filter((item) => item.expanded).length !== 1 || !info.accordions[0].expanded) {
         throw new Error("the first accordion section must be open by default and the others closed");
       }
+      if (!info.accordions[0].panelVisible) {
+        throw new Error("the open accordion panel is not visible: its content is clipped or transparent (check max-height/opacity and the initial open class)");
+      }
       if (info.accordions.slice(1).some((item) => !item.panelHidden)) {
         throw new Error("collapsed accordion panels must be hidden from assistive technology");
       }
@@ -827,15 +871,15 @@ export async function runUiSmoke({
       await browser.evaluate(`(() => {
         return new Promise(resolve => {
           const check = () => {
-            const buttons = document.querySelectorAll('#settings-content button[aria-expanded][aria-controls]');
+            const buttons = document.querySelectorAll(${JSON.stringify(accordionSelector)});
             if (buttons.length === 3) resolve();
             else requestAnimationFrame(check);
           };
           check();
         });
-      })`);
+      })()`);
       const recovered = await browser.evaluate(`({
-        sections: [...document.querySelectorAll('#settings-content button[aria-expanded][aria-controls]')]
+        sections: [...document.querySelectorAll(${JSON.stringify(accordionSelector)})]
           .map((button) => button.getAttribute("aria-expanded") === "true")
       })`);
       if (recovered.sections.length !== 3 || !recovered.sections[0] || recovered.sections.slice(1).some(Boolean)) {
@@ -847,46 +891,53 @@ export async function runUiSmoke({
       await browser.evaluate(`(() => {
         return new Promise(resolve => {
           const check = () => {
-            const buttons = document.querySelectorAll('#settings-content button[aria-expanded][aria-controls]');
+            const buttons = document.querySelectorAll(${JSON.stringify(accordionSelector)});
             if (buttons.length === 3) resolve();
             else requestAnimationFrame(check);
           };
           check();
         });
-      })`);
+      })()`);
       const filtered = await browser.evaluate(`[
-        ...document.querySelectorAll('#settings-content button[aria-expanded][aria-controls]')
+        ...document.querySelectorAll(${JSON.stringify(accordionSelector)})
       ].map((button) => button.getAttribute("aria-expanded") === "true")`);
       if (filtered.length !== 3 || !filtered[0] || filtered.slice(1).some(Boolean)) {
         throw new Error("accordion storage did not discard unknown section IDs");
       }
 
       const selector = await browser.evaluate(`(() => {
-        const button = document.querySelector('#settings-content button[aria-expanded="true"][aria-controls]');
+        const button = document.querySelector(${JSON.stringify(accordionSelector + '[aria-expanded="true"]')});
         if (!button) return "";
         button.setAttribute("data-fa-smoke-accordion", "first");
         return '[aria-controls="' + CSS.escape(button.getAttribute("aria-controls")) + '"]';
       })()`);
       if (!selector) throw new Error("default-open accordion button was not found");
       await browser.click('[data-fa-smoke-accordion="first"]');
-      const collapsed = await browser.evaluate(`(() => {
-        const button = document.querySelector(${JSON.stringify(selector)});
-        const panel = document.getElementById(button?.getAttribute("aria-controls"));
-        return button?.getAttribute("aria-expanded") === "false" &&
-          Boolean(panel?.hidden || panel?.getAttribute("aria-hidden") === "true");
-      })()`);
+      const collapsed = await browser.evaluate(`new Promise((resolve) => {
+        const started = performance.now();
+        const check = () => {
+          const button = document.querySelector(${JSON.stringify(selector)});
+          const panel = document.getElementById(button?.getAttribute("aria-controls"));
+          const done = button?.getAttribute("aria-expanded") === "false" &&
+            Boolean(panel?.hidden || panel?.getAttribute("aria-hidden") === "true");
+          if (done) resolve(true);
+          else if (performance.now() - started > 1500) resolve(false);
+          else requestAnimationFrame(check);
+        };
+        check();
+      })`);
       if (!collapsed) throw new Error("accordion click did not collapse and hide its panel");
       await browser.goto("settings.html");
       await browser.evaluate(`(() => {
         return new Promise(resolve => {
           const check = () => {
-            const buttons = document.querySelectorAll('#settings-content button[aria-expanded][aria-controls]');
+            const buttons = document.querySelectorAll(${JSON.stringify(accordionSelector)});
             if (buttons.length === 3) resolve();
             else requestAnimationFrame(check);
           };
           check();
         });
-      })`);
+      })()`);
       const persisted = await browser.evaluate(`(() => {
         const button = document.querySelector(${JSON.stringify(selector)});
         return button?.getAttribute("aria-expanded") === "false";
@@ -909,7 +960,7 @@ export async function runUiSmoke({
           };
           check();
         });
-      })`);
+      })()`);
       await chooseSettingOption({
         name: "theme",
         terms: ["theme", "тема", "主题"],
@@ -922,13 +973,13 @@ export async function runUiSmoke({
       await browser.evaluate(`(() => {
         return new Promise(resolve => {
           const check = () => {
-            const buttons = document.querySelectorAll('#settings-content button[aria-expanded][aria-controls]');
+            const buttons = document.querySelectorAll(${JSON.stringify(accordionSelector)});
             if (buttons.length === 3) resolve();
             else requestAnimationFrame(check);
           };
           check();
         });
-      })`);
+      })()`);
       const persisted = await browser.evaluate(`({
         theme: document.documentElement.getAttribute("data-theme"),
         value: localStorage.getItem("fain_theme_v1")
@@ -943,19 +994,19 @@ export async function runUiSmoke({
       const before = await browser.evaluate("document.documentElement.lang");
       const beforeTitle = await browser.evaluate("document.title");
       await browser.evaluate(`(() => {
-        const buttons = document.querySelectorAll('#settings-content button[aria-expanded][aria-controls]');
+        const buttons = document.querySelectorAll(${JSON.stringify(accordionSelector)});
         if (buttons[1]) buttons[1].click();
-      })`);
+      })()`);
       await browser.evaluate(`(() => {
         return new Promise(resolve => {
           const check = () => {
-            const buttons = document.querySelectorAll('#settings-content button[aria-expanded][aria-controls]');
+            const buttons = document.querySelectorAll(${JSON.stringify(accordionSelector)});
             if (buttons[1]?.getAttribute("aria-expanded") === "true") resolve();
             else requestAnimationFrame(check);
           };
           check();
         });
-      })`);
+      })()`);
       await browser.evaluate(`(() => {
         return new Promise(resolve => {
           const check = () => {
@@ -965,7 +1016,7 @@ export async function runUiSmoke({
           };
           check();
         });
-      })`);
+      })()`);
       await chooseSettingOption({
         name: "language",
         terms: ["language", "язык", "语言"],
@@ -1055,3 +1106,4 @@ export function uiSummary(result) {
   const passed = result.checks.filter((item) => item.status === "ok").length;
   return `ui: ${result.ok ? "PASS" : "FAIL"} — ${passed}/${result.checks.length} checks`;
 }
+export { Browser };

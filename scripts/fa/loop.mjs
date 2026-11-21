@@ -507,7 +507,8 @@ function runTaskVerify(task) {
   const result = spawnSync(bin, parts.slice(1), {
     cwd: ROOT,
     encoding: "utf8",
-    timeout: timeoutMs
+    timeout: timeoutMs,
+    env: { ...process.env, FA_TASK_ID: task.id }
   });
 
   return {

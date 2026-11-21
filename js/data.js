@@ -7,7 +7,8 @@ export const STORAGE_KEYS = {
   LANG: "fain_lang_v1",
   THEME: "fain_theme_v1",
   ASCII: "fain_ascii_v1",
-  CUSTOM_CSS: "fain_custom_css_v1"
+  CUSTOM_CSS: "fain_custom_css_v1",
+  SETTINGS_SECTIONS: "fain_settings_sections_v1"
 };
 
 export function getCacheKey(base, lang) {
@@ -281,6 +282,26 @@ export function saveJson(key, value) {
   } catch (e) {
     console.warn("Ошибка сохранения в localStorage:", e);
   }
+}
+
+const ACCORDION_SECTION_IDS = ["interface", "language", "other"];
+
+export function loadAccordionState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.SETTINGS_SECTIONS);
+    if (!raw) return ["interface"];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return ["interface"];
+    return parsed.filter(id => ACCORDION_SECTION_IDS.includes(id));
+  } catch {
+    return ["interface"];
+  }
+}
+
+export function saveAccordionState(ids) {
+  try {
+    localStorage.setItem(STORAGE_KEYS.SETTINGS_SECTIONS, JSON.stringify(ids));
+  } catch {}
 }
 
 export function getLocalCacheState(now = Date.now()) {
