@@ -856,6 +856,16 @@ export async function runUiSmoke({
       })()`);
       if (!collapsed) throw new Error("accordion click did not collapse and hide its panel");
       await browser.goto("settings.html");
+      await browser.evaluate(`(() => {
+        return new Promise(resolve => {
+          const check = () => {
+            const buttons = document.querySelectorAll('#settings-content button[aria-expanded][aria-controls]');
+            if (buttons.length === 3) resolve();
+            else requestAnimationFrame(check);
+          };
+          check();
+        });
+      })`);
       const persisted = await browser.evaluate(`(() => {
         const button = document.querySelector(${JSON.stringify(selector)});
         return button?.getAttribute("aria-expanded") === "false";
@@ -878,6 +888,16 @@ export async function runUiSmoke({
         expectedAttribute: "data-theme"
       });
       await browser.goto("settings.html");
+      await browser.evaluate(`(() => {
+        return new Promise(resolve => {
+          const check = () => {
+            const buttons = document.querySelectorAll('#settings-content button[aria-expanded][aria-controls]');
+            if (buttons.length === 3) resolve();
+            else requestAnimationFrame(check);
+          };
+          check();
+        });
+      })`);
       const persisted = await browser.evaluate(`({
         theme: document.documentElement.getAttribute("data-theme"),
         value: localStorage.getItem("fain_theme_v1")
@@ -891,6 +911,20 @@ export async function runUiSmoke({
       await browser.goto("settings.html");
       const before = await browser.evaluate("document.documentElement.lang");
       const beforeTitle = await browser.evaluate("document.title");
+      await browser.evaluate(`(() => {
+        const buttons = document.querySelectorAll('#settings-content button[aria-expanded][aria-controls]');
+        if (buttons[1]) buttons[1].click();
+      })`);
+      await browser.evaluate(`(() => {
+        return new Promise(resolve => {
+          const check = () => {
+            const buttons = document.querySelectorAll('#settings-content button[aria-expanded][aria-controls]');
+            if (buttons[1]?.getAttribute("aria-expanded") === "true") resolve();
+            else requestAnimationFrame(check);
+          };
+          check();
+        });
+      })`);
       await chooseSettingOption({
         name: "language",
         terms: ["language", "язык", "语言"],

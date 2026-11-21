@@ -19,7 +19,7 @@
 | Есть инварианты, которые не может обойти модель? | Да, 13 проверок в `scripts/verify.mjs` | [VERIFICATION.md](VERIFICATION.md) |
 | Проверки запускает агент или оркестратор? | Оркестратор, после агента | `scripts/fa/loop.mjs` |
 | Где выбирается модель? | В одном месте: `scripts/fa/models.mjs` + `FA_MODELS` | `scripts/fa/models.mjs` |
-| Кто исполняет задачу по умолчанию? | NVIDIA Nemotron 3 Ultra, затем Kimi K3.1 Pro и другие NVIDIA coding/agent кандидаты; Gemini — cross-provider fallback. Общий fallback и старые repo role variables не могут незаметно вернуть Gemini первым | `scripts/fa/models.mjs`, `.github/workflows/fa.yml` |
+| Кто исполняет задачу по умолчанию? | NVIDIA Nemotron 3 Ultra, затем Nemotron 3.5 Super VL и другие NVIDIA coding/agent кандидаты; Google Gemini 4 Hydrogen → 3.8 Flash → 3.6 Flash → 2.5 Flash — cross-provider fallback. Общий fallback и старые repo role variables не могут незаметно вернуть Gemini первым | `scripts/fa/models.mjs`, `.github/workflows/fa.yml` |
 | Есть fallback при квоте? | Да: ротация ключей Gemini и переключение между Gemini/NVIDIA с retry той же фазы | `scripts/fa/loop.mjs`, `scripts/fa/models.mjs` |
 | У каждого провайдера свой ключ? | Да: `GEMINI_API_KEY` (до пяти ключей) и `NVIDIA_API_KEY`/`NVIDIA_NIM_API_KEY` | `.github/workflows/fa.yml` |
 | Есть автоматический замер при смене модели? | Да, `npm run fa:eval -- --suite model` | [PROMPTS.md](PROMPTS.md) |
