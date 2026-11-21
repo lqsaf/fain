@@ -33,6 +33,10 @@
 
 Замер: фиксированная микрозадача в чистой копии репозитория, одинаковый промпт, одинаковые проверки. Считаем pass/fail, шаги, токены, время, размер диффа. Сравниваем с эталоном в [PROMPTS.md](PROMPTS.md).
 
+`fa-verify` запускает эту оценку для model registry/config, routing loop, runner и системных prompt changes. Любой обязательный model probe, вернувший fail, делает check красным. Для внешнего PR с такими изменениями проверка завершается ошибкой, а не пропускает eval без секретов; maintainer должен запустить `fa-verify` через `workflow_dispatch` на доверенной ветке репозитория, содержащей этот diff. Это pass/fail gate; численные baseline latency/token values остаются пустыми, пока не записаны фактические provider-backed результаты. Сделать `verify` и нужные GitHub checks обязательными для merge должен владелец branch protection.
+
+Для моделей, ограниченных простыми не-кодовыми задачами, eval использует отдельный арифметический prompt и agent без инструментов, а не задачу про исходники репозитория.
+
 ```bash
 npm run fa:eval -- --suite model --models google/gemini-3.1-flash-lite,nvidia/nemotron-3-ultra-550b-a55b
 ```

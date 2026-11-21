@@ -13,60 +13,92 @@
 
 import { spawnSync } from "node:child_process";
 
-export const MODEL_ROLES = ["planner", "executor", "repair", "reviewer"];
+export const MODEL_ROLES = ["planner", "executor", "repair", "reviewer", "simple"];
 export const ALLOWED_PROVIDERS = new Set(["google", "nvidia"]);
-const DEFAULT_PROVIDER_ORDER = {
-  planner: ["google", "nvidia"],
-  executor: ["nvidia", "google"],
-  repair: ["nvidia", "google"],
-  reviewer: ["google", "nvidia"]
+const DEFAULT_PROVIDER_ORDER = ["nvidia", "google"];
+export const DEFAULT_MODEL_ORDER = {
+  planner: [
+    "nvidia/nemotron-3.5-super-vl-120b-a12b",
+    "nvidia/nemotron-3-ultra-550b-a55b",
+    "nvidia/glm-5.3-flash",
+    "nvidia/minimax-m3.1-flash",
+    "nvidia/laguna-xs-2.1",
+    "google/gemini-4-hydrogen",
+    "google/gemini-3.8-flash",
+    "google/gemini-3.6-flash",
+    "google/gemini-2.5-flash"
+  ],
+  executor: [
+    "nvidia/nemotron-3-ultra-550b-a55b",
+    "nvidia/nemotron-3.5-super-vl-120b-a12b",
+    "nvidia/glm-5.3-flash",
+    "nvidia/minimax-m3.1-flash",
+    "nvidia/laguna-xs-2.1",
+    "google/gemini-4-hydrogen",
+    "google/gemini-3.8-flash",
+    "google/gemini-3.6-flash",
+    "google/gemini-2.5-flash"
+  ],
+  repair: [
+    "nvidia/nemotron-3-ultra-550b-a55b",
+    "nvidia/nemotron-3.5-super-vl-120b-a12b",
+    "nvidia/glm-5.3-flash",
+    "nvidia/minimax-m3.1-flash",
+    "nvidia/laguna-xs-2.1",
+    "google/gemini-4-hydrogen",
+    "google/gemini-3.8-flash",
+    "google/gemini-3.6-flash",
+    "google/gemini-2.5-flash"
+  ],
+  reviewer: [
+    "nvidia/nemotron-3-ultra-550b-a55b",
+    "nvidia/nemotron-3.5-super-vl-120b-a12b",
+    "nvidia/glm-5.3-flash",
+    "nvidia/minimax-m3.1-flash",
+    "nvidia/laguna-xs-2.1",
+    "google/gemini-4-hydrogen",
+    "google/gemini-3.8-flash",
+    "google/gemini-3.6-flash",
+    "google/gemini-2.5-flash"
+  ],
+  simple: [
+    "nvidia/nemotron-3.5-lightning-30b-a3b",
+    "google/gemini-3.5-flash-lite",
+    "google/gemini-3.1-flash-lite"
+  ]
 };
 
-// Роутер выбирает первую доступную модель роли только из Gemini/NVIDIA.
+// Google-модели идут после NVIDIA: их суточные квоты ограничены.
 export const DEFAULT_MODELS = [
   {
-    id: "google/gemini-3.1-flash-lite",
-    label: "Gemini 3.1 Flash-Lite",
-    provider: "google",
-    roles: ["planner", "executor", "repair", "reviewer"],
-    context: 1_048_576,
-    output: 65_536,
-    tpm: 250_000,
-    cost: { input: 0.1, output: 0.4 },
-    notes: "Gemini Flash-Lite; planner/reviewer first choice and fallback for implementation"
-  },
-  {
-    id: "nvidia/kimi-k3.1-pro",
-    label: "Kimi K3.1 Pro (NVIDIA NIM)",
+    id: "nvidia/nemotron-3-ultra-550b-a55b",
+    label: "Nemotron 3 Ultra (NVIDIA NIM)",
     provider: "nvidia",
     roles: ["planner", "executor", "repair", "reviewer"],
-    context: 1_048_576,
-    output: 32_768,
-    tpm: 250_000,
+    context: 1_000_000,
+    output: 8_192,
     cost: { input: 0, output: 0 },
-    notes: "NVIDIA-hosted Kimi K3.1 Pro; 1M context and agent/tool support"
+    notes: "NVIDIA NIM; primary model for coding and review roles"
   },
   {
-    id: "nvidia/step-5-preview",
-    label: "Step 5 Preview (NVIDIA NIM)",
-    provider: "nvidia",
-    roles: ["planner", "executor", "repair", "reviewer"],
-    context: 1_048_576,
-    output: 32_768,
-    tpm: 250_000,
-    cost: { input: 0, output: 0 },
-    notes: "NVIDIA-hosted Step 5 Preview; repository-level software engineering and agentic tool use"
-  },
-  {
-    id: "nvidia/mistral-large-4-1t-a52b",
-    label: "Mistral Large 4 (NVIDIA NIM)",
+    id: "nvidia/nemotron-3.5-super-vl-120b-a12b",
+    label: "Nemotron 3.5 Super VL 120B (NVIDIA NIM)",
     provider: "nvidia",
     roles: ["planner", "executor", "repair", "reviewer"],
     context: 1_000_000,
     output: 32_768,
-    tpm: 250_000,
     cost: { input: 0, output: 0 },
-    notes: "NVIDIA-hosted Mistral Large 4; reasoning, coding and tool calling"
+    notes: "NVIDIA NIM catalog; coding, tool-calling and multimodal agent model"
+  },
+  {
+    id: "nvidia/nemotron-3.5-lightning-30b-a3b",
+    label: "Nemotron 3.5 Lightning 30B (NVIDIA NIM)",
+    provider: "nvidia",
+    roles: ["simple"],
+    context: 1_000_000,
+    output: 8_192,
+    cost: { input: 0, output: 0 },
+    notes: "NVIDIA NIM catalog; fast model for explicitly non-coding simple tasks"
   },
   {
     id: "nvidia/glm-5.3-flash",
@@ -75,9 +107,8 @@ export const DEFAULT_MODELS = [
     roles: ["planner", "executor", "repair", "reviewer"],
     context: 1_048_576,
     output: 32_768,
-    tpm: 250_000,
     cost: { input: 0, output: 0 },
-    notes: "NVIDIA-hosted GLM-5.3-Flash; long-context coding and native tool calling"
+    notes: "NVIDIA-hosted coding and tool-calling fallback"
   },
   {
     id: "nvidia/minimax-m3.1-flash",
@@ -86,9 +117,8 @@ export const DEFAULT_MODELS = [
     roles: ["planner", "executor", "repair", "reviewer"],
     context: 200_000,
     output: 16_384,
-    tpm: 250_000,
     cost: { input: 0, output: 0 },
-    notes: "NVIDIA-hosted MiniMax M3.1 Flash; coding and agentic workflow candidate"
+    notes: "NVIDIA-hosted coding and agentic workflow fallback"
   },
   {
     id: "nvidia/laguna-xs-2.1",
@@ -97,21 +127,92 @@ export const DEFAULT_MODELS = [
     roles: ["planner", "executor", "repair", "reviewer"],
     context: 262_144,
     output: 16_384,
-    tpm: 250_000,
     cost: { input: 0, output: 0 },
-    notes: "NVIDIA-hosted Poolside model optimized for agentic coding"
+    notes: "NVIDIA-hosted agentic coding fallback"
   },
   {
-    id: "nvidia/nemotron-3-ultra-550b-a55b",
-    label: "Nemotron 3 Ultra (NVIDIA NIM)",
-    provider: "nvidia",
+    id: "google/gemini-4-hydrogen",
+    label: "Gemini 4 Hydrogen",
+    provider: "google",
     roles: ["planner", "executor", "repair", "reviewer"],
-    context: 1_000_000,
-    output: 8_192,
+    context: 1_048_576,
+    output: 65_536,
+    rpm: 5,
     tpm: 250_000,
+    dailyLimit: 20,
+    quotaGroup: "google-standard",
     cost: { input: 0, output: 0 },
-    optional: true,
-    notes: "NVIDIA NIM; executor/repair first choice and independent reviewer for Gemini"
+    notes: "Google code-capable fallback; shared standard Gemini quota"
+  },
+  {
+    id: "google/gemini-3.8-flash",
+    label: "Gemini 3.8 Flash",
+    provider: "google",
+    roles: ["planner", "executor", "repair", "reviewer"],
+    context: 1_048_576,
+    output: 65_536,
+    rpm: 5,
+    tpm: 250_000,
+    dailyLimit: 20,
+    quotaGroup: "google-standard",
+    cost: { input: 0, output: 0 },
+    notes: "Google code-capable fallback; shared standard Gemini quota"
+  },
+  {
+    id: "google/gemini-3.6-flash",
+    label: "Gemini 3.6 Flash",
+    provider: "google",
+    roles: ["planner", "executor", "repair", "reviewer"],
+    context: 1_048_576,
+    output: 65_536,
+    rpm: 5,
+    tpm: 250_000,
+    dailyLimit: 20,
+    quotaGroup: "google-standard",
+    cost: { input: 0, output: 0 },
+    notes: "Google code-capable fallback; shared standard Gemini quota"
+  },
+  {
+    id: "google/gemini-2.5-flash",
+    label: "Gemini 2.5 Flash",
+    provider: "google",
+    roles: ["planner", "executor", "repair", "reviewer"],
+    context: 1_048_576,
+    output: 65_536,
+    rpm: 5,
+    tpm: 250_000,
+    dailyLimit: 20,
+    quotaGroup: "google-standard",
+    cost: { input: 0.3, output: 2.5 },
+    notes: "Google code-capable fallback; shared standard Gemini quota"
+  },
+  {
+    id: "google/gemini-3.1-flash-lite",
+    label: "Gemini 3.1 Flash-Lite",
+    provider: "google",
+    roles: ["simple"],
+    context: 1_048_576,
+    output: 65_536,
+    rpm: 15,
+    tpm: 250_000,
+    dailyLimit: 500,
+    quotaGroup: "google-lite",
+    cost: { input: 0.1, output: 0.4 },
+    notes: "Simple, non-coding tasks only"
+  },
+  {
+    id: "google/gemini-3.5-flash-lite",
+    label: "Gemini 3.5 Flash-Lite",
+    provider: "google",
+    roles: ["simple"],
+    context: 1_048_576,
+    output: 65_536,
+    rpm: 15,
+    tpm: 250_000,
+    dailyLimit: 500,
+    quotaGroup: "google-lite",
+    cost: { input: 0, output: 0 },
+    notes: "Simple, non-coding tasks only"
   }
 ];
 
@@ -189,16 +290,47 @@ function availableFilter(env) {
   const deny = new Set(splitList(env.FA_EXCLUDE_MODELS));
   return (model) => {
     if (!ALLOWED_PROVIDERS.has(model.provider || providerOf(model.id))) return false;
-    if (deny.has(model.id)) return false;
+    if (deny.has(model.id) || deny.has(model.id.replace(/#[a-z0-9-]+$/i, ""))) return false;
     if (allow.size > 0 && !allow.has(model.id)) return false;
     if (model.optional && env.FA_ALLOW_OPTIONAL === "false") return false;
     return true;
   };
 }
 
+function providerLimits(model, env) {
+  if (model.provider !== "nvidia") return model;
+  const limited = { ...model, quotaGroup: model.quotaGroup || "nvidia" };
+  const limits = [
+    ["rpm", "FA_NVIDIA_RPM"],
+    ["tpm", "FA_NVIDIA_TPM"],
+    ["dailyLimit", "FA_NVIDIA_RPD"]
+  ];
+  const missing = limits.filter(([, variable]) => env[variable] === undefined || env[variable] === "");
+  if (missing.length > 0 && hasProviderKey(model.id, env)) {
+    throw new Error(`set NVIDIA account rate limits: ${missing.map(([, variable]) => variable).join(", ")}`);
+  }
+  for (const [field, variable] of limits) {
+    const raw = env[variable];
+    if (raw === undefined || raw === "") continue;
+    const value = Number(raw);
+    if (!Number.isSafeInteger(value) || value < 0) {
+      throw new Error(`${variable} must be a non-negative integer`);
+    }
+    limited[field] = value;
+  }
+  return limited;
+}
+
 function prioritizeRole(models, role) {
-  const order = DEFAULT_PROVIDER_ORDER[role] || [];
-  return models.sort((left, right) => order.indexOf(left.provider) - order.indexOf(right.provider));
+  const modelOrder = DEFAULT_MODEL_ORDER[role] || [];
+  return models.sort((left, right) => {
+    const leftModel = modelOrder.indexOf(left.id);
+    const rightModel = modelOrder.indexOf(right.id);
+    if (leftModel >= 0 || rightModel >= 0) {
+      return (leftModel < 0 ? Infinity : leftModel) - (rightModel < 0 ? Infinity : rightModel);
+    }
+    return DEFAULT_PROVIDER_ORDER.indexOf(left.provider) - DEFAULT_PROVIDER_ORDER.indexOf(right.provider);
+  });
 }
 
 /**
@@ -219,7 +351,7 @@ export function modelChain(env = process.env) {
 
   return models
     .map((model) => ({
-      ...model,
+      ...providerLimits(model, env),
       available: hasProviderKey(model.id, env),
       keyNames: providerKeys(model.provider)
     }));
@@ -243,8 +375,9 @@ export function modelsForRole(role, env = process.env, { fallback = true } = {})
   if (explicit.length > 0) {
     const selected = parseModels(explicit.join(","))
       .filter(availableFilter(env))
+      .filter((model) => Array.isArray(model.roles) && model.roles.includes(role))
       .map((model) => ({
-        ...model,
+        ...providerLimits(model, env),
         role,
         available: hasProviderKey(model.id, env),
         keyNames: providerKeys(model.provider)

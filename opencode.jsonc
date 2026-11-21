@@ -4,7 +4,7 @@
   // FA — автономный агент. Модели выбирает scripts/fa/models.mjs;
   // здесь только провайдеры, MCP-инструменты и жёсткие границы.
   "default_agent": "fa",
-  "model": "google/gemini-3.1-flash-lite",
+  "model": "nvidia/nemotron-3-ultra-550b-a55b",
 
   // FA работает без человека: контекст сжимается, вывод инструментов ограничен.
   "compaction": {
@@ -33,6 +33,32 @@
         "apiKey": "{env:GEMINI_API_KEY}",
         "headerTimeout": 300000,
         "chunkTimeout": 300000
+      },
+      "models": {
+        "gemini-2.5-flash": {
+          "name": "Gemini 2.5 Flash",
+          "limit": { "context": 1048576, "output": 65536 }
+        },
+        "gemini-3.6-flash": {
+          "name": "Gemini 3.6 Flash",
+          "limit": { "context": 1048576, "output": 65536 }
+        },
+        "gemini-3.8-flash": {
+          "name": "Gemini 3.8 Flash",
+          "limit": { "context": 1048576, "output": 65536 }
+        },
+        "gemini-4-hydrogen": {
+          "name": "Gemini 4 Hydrogen",
+          "limit": { "context": 1048576, "output": 65536 }
+        },
+        "gemini-3.1-flash-lite": {
+          "name": "Gemini 3.1 Flash-Lite",
+          "limit": { "context": 1048576, "output": 65536 }
+        },
+        "gemini-3.5-flash-lite": {
+          "name": "Gemini 3.5 Flash-Lite",
+          "limit": { "context": 1048576, "output": 65536 }
+        }
       }
     },
     "nvidia": {
@@ -44,20 +70,15 @@
         "apiKey": "{env:NVIDIA_API_KEY}"
       },
       "models": {
-        "kimi-k3.1-pro": {
-          "name": "Kimi K3.1 Pro (NVIDIA NIM)",
-          "modelID": "moonshotai/kimi-k3.1-pro",
-          "limit": { "context": 1048576, "output": 32768 }
-        },
-        "step-5-preview": {
-          "name": "Step 5 Preview (NVIDIA NIM)",
-          "modelID": "stepfun-ai/step-5-preview",
-          "limit": { "context": 1048576, "output": 32768 }
-        },
-        "mistral-large-4-1t-a52b": {
-          "name": "Mistral Large 4 (NVIDIA NIM)",
-          "modelID": "mistralai/mistral-large-4-1t-a52b",
+        "nemotron-3.5-super-vl-120b-a12b": {
+          "name": "Nemotron 3.5 Super VL 120B",
+          "modelID": "nvidia/nemotron-3.5-super-vl-120b-a12b",
           "limit": { "context": 1000000, "output": 32768 }
+        },
+        "nemotron-3.5-lightning-30b-a3b": {
+          "name": "Nemotron 3.5 Lightning 30B",
+          "modelID": "nvidia/nemotron-3.5-lightning-30b-a3b",
+          "limit": { "context": 1000000, "output": 8192 }
         },
         "glm-5.3-flash": {
           "name": "GLM-5.3-Flash (NVIDIA NIM)",

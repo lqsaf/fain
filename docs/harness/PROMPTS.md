@@ -35,10 +35,10 @@ npm run verify
 ### Модель (уровень 2)
 
 ```bash
-npm run fa:eval -- --suite model --models google/gemini-3.1-flash-lite,nvidia/nemotron-3-ultra-550b-a55b
+npm run fa:eval -- --suite model --models nvidia/nemotron-3-ultra-550b-a55b,google/gemini-2.5-flash
 ```
 
-Замер задаёт один и тот же детерминированный вопрос по репозиторию, требует JSON-ответ и проверяет его без модели:
+Кодовые модели отвечают на один и тот же детерминированный вопрос по репозиторию; для простых non-coding моделей используется отдельный арифметический prompt. Оба требуют JSON-ответ, который проверяется без модели:
 
 - сколько ключей в `STORAGE_KEYS`;
 - какие языки есть в `I18N`;
@@ -53,10 +53,10 @@ npm run fa:eval -- --suite model --models google/gemini-3.1-flash-lite,nvidia/ne
 
 | Версия | Модель | Pass | Шаги | Токены | Время |
 | --- | --- | --- | --- | --- | --- |
-| `fa-v1` / `task-v1` | `nvidia/kimi-k3.1-pro` | — | — | — | — |
-| `fa-v1` / `task-v1` | `google/gemini-3.1-flash-lite` | — | — | — | — |
+| `fa-v2` / `task-v2` | `nvidia/nemotron-3-ultra-550b-a55b` | — | — | — | — |
+| `fa-v2` / `task-v2` | `google/gemini-4-hydrogen` | — | — | — | — |
 
-Обновлять при каждом принятом изменении промпта или модели. Значения брать из `fa/eval/<timestamp>.json`.
+Кодовые роли имеют разные NVIDIA-приоритеты, но общий Google fallback: Gemini 4 Hydrogen → 3.8 Flash → 3.6 Flash → 2.5 Flash. Google-квоты общие для стандартных моделей, поэтому порядок моделей остаётся после NVIDIA. При изменении registry, OpenCode config, model runner или системных prompts workflow `fa-verify` проверяет перечисленные маршруты, включая отдельный non-coding prompt для Lightning/Flash-Lite. Подробные измерения берутся из отчётов `fa/eval/<timestamp>.json`; численные latency/token baselines фиксируются только после реального provider-backed прогона.
 
 ## Откат
 

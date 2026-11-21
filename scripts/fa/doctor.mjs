@@ -83,7 +83,57 @@ export async function probeModels({ env = process.env, useCache = true } = {}) {
   };
 }
 
-export async function preflight({ env = process.env, ci = isCi(), probe = null, requireUi = false } = {}) {
+function probeModelCapabilities(modelIds, env) {
+  if (modelIds.length === 0) {
+    return { ok: false, results: [], reason: "no configured model has a provider key" };
+  }
+  const timeoutMin = Number(env.FA_PREFLIGHT_MODEL_TIMEOUT_MIN || 2);
+  if (!Number.isSafeInteger(timeoutMin) || timeoutMin < 1 || timeoutMin > 30) {
+    throw new Error("FA_PREFLIGHT_MODEL_TIMEOUT_MIN must be an integer from 1 to 30");
+  }
+  const result = spawnSync(
+    process.execPath,
+    [
+      join(ROOT, "scripts/fa/eval.mjs"),
+      "--suite",
+      "model",
+      "--models",
+      modelIds.join(","),
+      "--timeout",
+      String(timeoutMin),
+      "--json"
+    ],
+    {
+      cwd: ROOT,
+      encoding: "utf8",
+      timeout: modelIds.length * timeoutMin * 60_000 + 30_000,
+      env
+    }
+  );
+  let report = null;
+  try {
+    report = JSON.parse(result.stdout || "");
+  } catch {
+    report = null;
+  }
+  return {
+    ok: result.status === 0 && Boolean(report?.ok),
+    results: report?.results || [],
+    reason: result.error
+      ? `model capability evaluation could not complete (${result.error.code || "spawn error"})`
+      : report
+        ? ""
+        : "model capability evaluation returned invalid JSON"
+  };
+}
+
+export async function preflight({
+  env = process.env,
+  ci = isCi(),
+  probe = null,
+  requireUi = false,
+  probeCapabilities = false
+} = {}) {
   const problems = [];
   const warnings = [];
   const checks = [];
@@ -134,6 +184,22 @@ export async function preflight({ env = process.env, ci = isCi(), probe = null, 
     }
   }
 
+  let capabilityProbe = null;
+  if (probeCapabilities) {
+    capabilityProbe = probeModelCapabilities(
+      chain.filter((model) => model.available).map((model) => model.id),
+      env
+    );
+    checks.push({
+      name: "model-capabilities",
+      status: capabilityProbe.ok ? "ok" : "fail",
+      detail: capabilityProbe.ok
+        ? `${capabilityProbe.results.filter((item) => item.ok).length}/${capabilityProbe.results.length} models passed`
+        : capabilityProbe.reason || "one or more models failed the deterministic evaluation"
+    });
+    if (!capabilityProbe.ok) problems.push("model capability evaluation failed; inspect the fa/eval report");
+  }
+
   const promptProblems = validatePrompts();
   for (const problem of promptProblems) problems.push(`prompts: ${problem}`);
 
@@ -162,6 +228,7 @@ export async function preflight({ env = process.env, ci = isCi(), probe = null, 
     usable,
     roles,
     probe: probeResult,
+    capabilityProbe,
     stats,
     chrome,
     opencodeVersion: version.stdout,
@@ -199,12 +266,13 @@ function printHuman(result) {
 async function main() {
   const args = process.argv.slice(2);
   if (args.includes("--help") || args.includes("-h")) {
-    console.log("usage: node scripts/fa/doctor.mjs [--json] [--no-probe] [--require-ui] [--verify]");
+    console.log("usage: node scripts/fa/doctor.mjs [--json] [--no-probe] [--probe-capabilities] [--require-ui] [--verify]");
     return;
   }
   const result = await preflight({
     probe: args.includes("--no-probe") ? { ok: false, ids: [], source: "disabled" } : null,
-    requireUi: args.includes("--require-ui")
+    requireUi: args.includes("--require-ui"),
+    probeCapabilities: args.includes("--probe-capabilities")
   });
 
   if (args.includes("--verify")) {

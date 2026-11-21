@@ -7,13 +7,20 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ROOT, OPENCODE_BIN, PATHS, ensureDir, makeRunId, nowIso } from "./config.mjs";
 import { analyzeEvents, parseJsonlText } from "./metrics.mjs";
-import { modelChain } from "./models.mjs";
+import { DEFAULT_MODELS, modelChain } from "./models.mjs";
+import { ModelSession } from "./router.mjs";
 
 const ANSWER_PROMPT = [
   "Read js/data.js and css/styles.css in this repository. Do not edit anything.",
   "Answer with one JSON object and nothing else:",
   '{"storageKeys": <number of entries in STORAGE_KEYS>, "languages": [<keys of I18N>], "themes": [<values in [data-theme="..."] selectors in css/styles.css>]}'
 ].join("\n");
+const SIMPLE_PROMPT = [
+  "Do this small non-coding task. Do not inspect or edit repository files.",
+  'Return exactly one JSON object and nothing else: {"sum": 42, "label": "simple"}',
+  "The sum is 19 + 23. The label must be the exact string shown."
+].join("\n");
+const SIMPLE_EXPECTED = { sum: 42, label: "simple" };
 
 function parseArgs(argv) {
   const out = { suite: "invariants", models: [], json: false, timeoutMin: 10 };
@@ -25,7 +32,9 @@ function parseArgs(argv) {
     else if (arg === "--timeout") out.timeoutMin = Math.max(1, Number(argv[++i]) || 10);
     else if (arg === "--help" || arg === "-h") out.help = true;
   }
-  if (out.models.length === 0) out.models = modelChain().map((model) => model.id);
+  if (out.models.length === 0 && out.suite === "model") {
+    out.models = modelChain().filter((model) => model.available).map((model) => model.id);
+  }
   return out;
 }
 
@@ -81,6 +90,17 @@ function score(answer, expected) {
   };
 }
 
+function scoreSimple(answer) {
+  const checks = [];
+  if (Number(answer?.sum) === SIMPLE_EXPECTED.sum) checks.push("sum");
+  if (answer?.label === SIMPLE_EXPECTED.label) checks.push("label");
+  return {
+    pass: checks.length === 2,
+    checks,
+    detail: checks.length === 2 ? "ok" : `matched: ${checks.join(", ") || "none"}`
+  };
+}
+
 function runInvariants() {
   const started = Date.now();
   const result = spawnSync(process.execPath, [join(ROOT, "scripts/verify.mjs"), "--json"], {
@@ -106,11 +126,37 @@ function runInvariants() {
   };
 }
 
-function runModel(model, expected, timeoutMin) {
+async function runModel(model, expected, timeoutMin, session) {
   const started = Date.now();
+  const baseId = model.replace(/#[a-z0-9-]+$/i, "");
+  const registryModel = DEFAULT_MODELS.find((item) => item.id === baseId);
+  const simple = registryModel?.roles.includes("simple") || false;
+  const role = simple ? "simple" : "reviewer";
+  const reservation = await session.reserve(role, {
+    estimateTokens: 20_000,
+    maxWaitMs: 0,
+    exclude: session
+      .candidates(role)
+      .filter((candidate) => candidate.id.replace(/#[a-z0-9-]+$/i, "") !== baseId)
+      .map((candidate) => candidate.id)
+  });
+  if (!reservation.ok) {
+    return {
+      suite: "model",
+      model,
+      ok: false,
+      verdict: reservation.reason,
+      tokens: {},
+      tokenTotal: 0,
+      durationMs: Date.now() - started
+    };
+  }
+  const prompt = simple ? SIMPLE_PROMPT : ANSWER_PROMPT;
+  const expectedForModel = simple ? SIMPLE_EXPECTED : expected;
+  const agent = simple ? "fa-scarce" : "fa-reviewer";
   const result = spawnSync(
     OPENCODE_BIN,
-    ["run", "--agent", "fa-reviewer", "--model", model, "--format", "json", "--auto", "--title", `FA eval ${model}`, ANSWER_PROMPT],
+    ["run", "--agent", agent, "--model", model, "--format", "json", "--auto", "--title", `FA eval ${model}`, prompt],
     {
       cwd: ROOT,
       encoding: "utf8",
@@ -124,8 +170,9 @@ function runModel(model, expected, timeoutMin) {
   const { events } = parseJsonlText(stdout);
   const text = extractText(events) || stdout;
   const answer = extractJson(text);
-  const verdict = score(answer, expected);
+  const verdict = simple ? scoreSimple(answer) : score(answer, expected);
   const metrics = analyzeEvents(events);
+  session.settle(reservation.reservation, { actualTokens: metrics.tokenTotal });
 
   return {
     suite: "model",
@@ -134,7 +181,7 @@ function runModel(model, expected, timeoutMin) {
     verdict: verdict.detail,
     checks: verdict.checks,
     answer,
-    expected,
+    expected: expectedForModel,
     durationMs: Date.now() - started,
     tokens: metrics.tokens,
     tokenTotal: metrics.tokenTotal,
@@ -166,15 +213,22 @@ async function main() {
     process.exitCode = 2;
     return;
   }
+  if (options.models.length === 0) {
+    console.error("model eval has no available models; configure a provider key");
+    process.exitCode = 2;
+    return;
+  }
 
   const expected = await expectedAnswer();
-  const results = options.models.map((model) => {
+  const session = new ModelSession();
+  const results = [];
+  for (const model of options.models) {
     try {
-      return runModel(model, expected, options.timeoutMin);
+      results.push(await runModel(model, expected, options.timeoutMin, session));
     } catch (error) {
-      return { suite: "model", model, ok: false, verdict: error.message, tokens: {}, tokenTotal: 0 };
+      results.push({ suite: "model", model, ok: false, verdict: error.message, tokens: {}, tokenTotal: 0 });
     }
-  });
+  }
 
   const report = {
     suite: "model",

@@ -13,6 +13,7 @@
 | `scripts/fa/metrics.mjs` | разбор событий OpenCode | путь к `.jsonl` | JSON-метрики |
 | `scripts/fa/report.mjs` | статус и PR body | `--pr-body`, `--github-summary` | Markdown |
 | `scripts/fa/eval.mjs` | замеры качества | `--suite invariants|model` | JSON + таблица |
+| `scripts/fa/mcp-server.mjs` | read-only MCP tools/resources | stdio JSON-RPC | versioned registry + tool results |
 | `fa-reviewer` | независимый review | diff + acceptance | `VERDICT: PASS|FAIL` |
 
 Встроенные инструменты OpenCode (`read`, `edit`, `glob`, `grep`, `shell`) ограничены правилами в `opencode.jsonc`. Список разрешённых shell-команд для `verify:` — в `scripts/fa/policy.mjs`.
@@ -47,6 +48,8 @@
 4. Добавь инвариант в `verify.mjs`, если инструмент влияет на проект.
 5. Прогони `npm run verify`.
 
-## Почему не MCP
+## MCP compatibility
 
-Для текущего масштаба хватает локальных детерминированных скриптов. MCP добавил бы сетевую поверхность и недетерминизм без пользы. Если появится браузерная проверка UI, она войдёт отдельным инструментом с явным контрактом, а не «магическим» сервером.
+The MCP server exposes a stable registry resource at `fa://tool-registry`, versioned independently from the MCP protocol. Tool names remain compatible within registry v1; compatible additions do not rename existing tools. A breaking input or output contract requires a new major registry version and a migration period with old names retained where possible. The server advertises its own implementation version through `serverInfo`.
+
+The MCP server is local stdio JSON-RPC; it does not open a network listener. Keep tools deterministic, narrow, and read-only unless a separately reviewed contract explicitly grants a mutation.

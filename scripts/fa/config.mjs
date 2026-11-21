@@ -39,20 +39,27 @@ function readFlag(name, fallback = false) {
   return !/^(0|false|no|off)$/i.test(String(raw).trim());
 }
 
+const repairTimeoutMin = readNumber("FA_REPAIR_TIMEOUT_MIN", 30);
+if (repairTimeoutMin < 1 || repairTimeoutMin > 30) {
+  throw new Error("FA_REPAIR_TIMEOUT_MIN must be between 1 and 30 minutes");
+}
+
 export const LIMITS = {
-  taskTimeoutMs: readNumber("FA_TASK_TIMEOUT_MIN", 25) * 60_000,
-  // Один запуск — ровно одна задача. 90 минут хватает на план, две реализации и review.
-  runBudgetMs: readNumber("FA_RUN_BUDGET_MIN", 90) * 60_000,
+  taskTimeoutMs: readNumber("FA_TASK_TIMEOUT_MIN", 90) * 60_000,
+  // Один запуск — одна задача; hourly scheduling allows long UI tasks to finish.
+  runBudgetMs: readNumber("FA_RUN_BUDGET_MIN", 240) * 60_000,
   maxAttempts: Math.max(1, readNumber("FA_MAX_ATTEMPTS", 2)),
   maxRepairs: Math.max(0, readNumber("FA_MAX_REPAIRS", 2)),
+  repairTimeoutMs: repairTimeoutMin * 60_000,
   maxPlanRepairs: Math.max(0, readNumber("FA_MAX_PLAN_REPAIRS", 1)),
   tokenBudget: readNumber("FA_TOKEN_BUDGET", 2_000_000),
   maxInfraFailures: Math.max(1, readNumber("FA_MAX_INFRA_FAILURES", 3)),
-  reviewTimeoutMs: readNumber("FA_REVIEW_TIMEOUT_MIN", 10) * 60_000,
-  planTimeoutMs: readNumber("FA_PLAN_TIMEOUT_MIN", 12) * 60_000,
-  specReviewTimeoutMs: readNumber("FA_SPEC_REVIEW_TIMEOUT_MIN", 8) * 60_000,
-  verifyTimeoutMs: readNumber("FA_VERIFY_TIMEOUT_MIN", 5) * 60_000,
-  uiTimeoutMs: readNumber("FA_UI_TIMEOUT_MIN", 4) * 60_000,
+  modelTimeoutMs: Math.max(1_000, readNumber("FA_MODEL_TIMEOUT_MIN", 60) * 60_000),
+  reviewTimeoutMs: readNumber("FA_REVIEW_TIMEOUT_MIN", 30) * 60_000,
+  planTimeoutMs: readNumber("FA_PLAN_TIMEOUT_MIN", 25) * 60_000,
+  specReviewTimeoutMs: readNumber("FA_SPEC_REVIEW_TIMEOUT_MIN", 20) * 60_000,
+  verifyTimeoutMs: readNumber("FA_VERIFY_TIMEOUT_MIN", 15) * 60_000,
+  uiTimeoutMs: readNumber("FA_UI_TIMEOUT_MIN", 15) * 60_000,
   rateWaitMaxMs: readNumber("FA_RATE_WAIT_MAX_SEC", 45) * 1000,
   contextChars: readNumber("FA_CONTEXT_CHARS", 60_000),
   memoryEntries: readNumber("FA_MEMORY_LIMIT", 6),

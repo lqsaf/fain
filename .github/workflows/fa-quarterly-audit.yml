@@ -1,0 +1,45 @@
+name: FA quarterly harness audit
+
+on:
+  schedule:
+    - cron: "0 9 1 1,4,7,10 *"
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+concurrency:
+  group: fa-quarterly-audit
+  cancel-in-progress: false
+
+jobs:
+  audit-reminder:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Open quarterly review issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          month="$(date -u +%-m)"
+          quarter="$(( (month - 1) / 3 + 1 ))"
+          title="FA quarterly harness audit Q${quarter} $(date -u +%Y)"
+          existing="$(gh issue list --state open --search "in:title \"$title\"" --json title --jq '.[].title' --limit 100)"
+          if grep -Fxq "$title" <<< "$existing"; then
+            echo "Quarterly audit issue is already open: $title"
+            exit 0
+          fi
+          gh issue create --title "$title" --body-file - <<'EOF'
+          ## Quarterly harness review
+
+          Review whether the harness still needs each wrapper, guard, timeout, and quota assumption. This reminder does not modify configuration or run model probes.
+
+          - [ ] Review the last 30 run summaries for recurring failures, phase duration, token use, and cost anomalies.
+          - [ ] Identify the root cause of repeated timeouts before increasing budgets.
+          - [ ] Review model availability and provider quotas using an explicitly approved capability probe.
+          - [ ] Check whether compaction, retries, tool restrictions, and other scaffolding still address observed failures.
+          - [ ] Remove or simplify scaffolding only with a deterministic regression test and recorded before/after evaluation.
+          - [ ] Recheck trace privacy, artifact retention, CODEOWNERS, branch protection, and kill-switch behavior.
+          - [ ] Update the audit report with evidence, decisions, and unresolved external configuration.
+          EOF

@@ -5,14 +5,17 @@
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DEFAULT_MODELS, classifyFailure, estimateTokens, modelsForRole, parseModels, providerOf, roleSummary } from "./models.mjs";
-import { Breaker, ModelSession, RateLedger, roleCandidates } from "./router.mjs";
+import { DEFAULT_MODEL_ORDER, DEFAULT_MODELS, classifyFailure, estimateTokens, modelsForRole, parseModels, providerOf, roleSummary } from "./models.mjs";
+import { Breaker, DailyCallLedger, ModelSession, RateLedger, roleCandidates } from "./router.mjs";
+import { runPhase } from "./runner.mjs";
+import { createLogRecord } from "./logging.mjs";
+import { createOtlpSpan } from "./telemetry.mjs";
 import { buildContext, expandFiles } from "./context.mjs";
 import { addMemory, failureFingerprint, loadMemory, repeatedFailureTrend, searchMemory } from "./memory.mjs";
 import { createRunState, isSuccessfulRun, loadRunState, saveRunState, setPhase } from "./state.mjs";
 import { readQueue } from "./queue.mjs";
-import { specReviewVerdict, validatePrompts } from "./prompts.mjs";
-import { TOOLS } from "./mcp-server.mjs";
+import { buildPlanPrompt, buildSpecReviewPrompt, specReviewVerdict, validatePrompts } from "./prompts.mjs";
+import { TOOL_REGISTRY, TOOL_REGISTRY_VERSION, TOOLS } from "./mcp-server.mjs";
 import { findChrome } from "./ui.mjs";
 import { LIMITS, ROOT, phaseTimeout } from "./config.mjs";
 
@@ -43,6 +46,15 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+check("mcp.registry", () => {
+  assert(TOOL_REGISTRY_VERSION === "1.0.0", "MCP tool registry version is missing");
+  assert(TOOL_REGISTRY.length === TOOLS.length, "MCP registry does not describe every exposed tool");
+  assert(
+    TOOL_REGISTRY.every((entry, index) => entry.name === TOOLS[index].name && entry.version === TOOL_REGISTRY_VERSION),
+    "MCP registry names or versions do not match the exposed tools"
+  );
+});
+
 check("models.classify", () => {
   assert(classifyFailure("429 Too Many Requests") === "quota", "429 is not quota");
   assert(classifyFailure("401 Unauthorized") === "auth", "401 is not auth");
@@ -57,21 +69,67 @@ check("models.classify", () => {
 
 check("models.defaults", () => {
   const ids = DEFAULT_MODELS.map((model) => model.id);
-  assert(ids.some((id) => id.startsWith("google/")), "Gemini is missing from defaults");
+  assert(ids.includes("google/gemini-2.5-flash"), "Gemini code fallback is missing from defaults");
+  assert(ids.includes("google/gemini-3.6-flash"), "Gemini 3.6 Flash is missing from defaults");
+  assert(ids.includes("google/gemini-3.8-flash"), "Gemini 3.8 Flash is missing from defaults");
+  assert(ids.includes("google/gemini-4-hydrogen"), "Gemini 4 Hydrogen is missing from defaults");
   assert(ids.includes("nvidia/nemotron-3-ultra-550b-a55b"), "active NVIDIA Nemotron model is missing from defaults");
+  assert(ids.includes("nvidia/nemotron-3.5-super-vl-120b-a12b"), "NVIDIA Nemotron 3.5 Super is missing from defaults");
+  assert(!ids.some((id) => id.includes("deepseek")), "unavailable NVIDIA DeepSeek model remains in defaults");
+  assert(DEFAULT_MODELS.find((model) => model.id === "nvidia/nemotron-3.5-lightning-30b-a3b")?.roles.join(",") === "simple", "Nemotron Lightning is not restricted to simple tasks");
   assert(DEFAULT_MODELS.every((model) => ["google", "nvidia"].includes(model.provider)), "a disallowed provider remains in defaults");
-  assert(!ids.some((id) => id.includes("deepseek-v4.1-flash")), "retired NVIDIA DeepSeek model remains enabled");
+  for (const id of ["google/gemini-3.1-flash-lite", "google/gemini-3.5-flash-lite"]) {
+    const model = DEFAULT_MODELS.find((item) => item.id === id);
+    assert(model?.roles.length === 1 && model.roles[0] === "simple", `${id} is available outside simple non-coding tasks`);
+    assert(model.rpm === 15 && model.tpm === 250_000 && model.dailyLimit === 500, `${id} has incorrect quota limits`);
+  }
+  for (const model of DEFAULT_MODELS.filter((item) => item.provider === "google" && !item.id.includes("flash-lite"))) {
+    assert(model.rpm === 5 && model.tpm === 250_000 && model.dailyLimit === 20, `${model.id} has incorrect standard Google quotas`);
+  }
+  let missingNvidiaLimits = false;
+  try {
+    modelsForRole("executor", {
+      ...process.env,
+      FA_MODELS: "",
+      FA_EXECUTOR_MODEL: "",
+      FA_AVAILABLE_MODELS: "",
+      FA_EXCLUDE_MODELS: "",
+      GEMINI_API_KEY: "test-key",
+      NVIDIA_API_KEY: "test-key",
+      FA_NVIDIA_RPM: "",
+      FA_NVIDIA_TPM: "",
+      FA_NVIDIA_RPD: ""
+    });
+  } catch (error) {
+    missingNvidiaLimits = /FA_NVIDIA_(?:RPM|TPM|RPD)/.test(error.message);
+  }
+  assert(missingNvidiaLimits, "NVIDIA models were available without account rate limits");
+  const simpleIds = modelsForRole("simple", {
+    ...process.env,
+    FA_MODELS: "",
+    FA_SIMPLE_MODEL: "",
+    FA_AVAILABLE_MODELS: "",
+    FA_EXCLUDE_MODELS: "",
+    GEMINI_API_KEY: "test-key",
+    GOOGLE_GENERATIVE_AI_API_KEY: "",
+    GOOGLE_API_KEY: "",
+    NVIDIA_API_KEY: "test-key",
+    FA_NVIDIA_RPM: "5",
+    FA_NVIDIA_TPM: "250000",
+    FA_NVIDIA_RPD: "20"
+  }).map((model) => model.id);
+  assert(
+    simpleIds.slice(0, 3).join(",") ===
+      "nvidia/nemotron-3.5-lightning-30b-a3b,google/gemini-3.5-flash-lite,google/gemini-3.1-flash-lite",
+    "simple tasks do not follow NVIDIA, Gemini 3.5 Lite, Gemini 3.1 Lite ordering"
+  );
   const opencodeConfig = readFileSync(join(ROOT, "opencode.jsonc"), "utf8");
   assert(opencodeConfig.includes('"modelID": "nvidia/nemotron-3-ultra-550b-a55b"'), "NVIDIA provider does not send its required API model ID");
-  assert(opencodeConfig.includes('"modelID": "moonshotai/kimi-k3.1-pro"'), "Kimi K3.1 Pro is not configured for NVIDIA NIM");
-  assert(opencodeConfig.includes('"modelID": "stepfun-ai/step-5-preview"'), "Step 5 Preview is not configured for NVIDIA NIM");
-  assert(opencodeConfig.includes('"modelID": "mistralai/mistral-large-4-1t-a52b"'), "Mistral Large 4 is not configured for NVIDIA NIM");
   assert(opencodeConfig.includes('"modelID": "z-ai/glm-5.3-flash"'), "GLM-5.3-Flash is not configured for NVIDIA NIM");
   assert(opencodeConfig.includes('"modelID": "minimaxai/minimax-m3.1-flash"'), "MiniMax M3.1 Flash is not configured for NVIDIA NIM");
   assert(opencodeConfig.includes('"modelID": "poolside/laguna-xs-2.1"'), "Laguna XS 2.1 is not configured for NVIDIA NIM");
   assert(!opencodeConfig.includes("xerosharc") && !opencodeConfig.includes("openrouter"), "removed providers remain configured");
   assert(!ids.some((id) => id.startsWith("opencode/") || id.startsWith("anthropic/")), "unconfigured free/direct provider remains in defaults");
-  assert(!ids.some((id) => id.includes("deepseek-v4.1-flash-free")), "unverified OpenCode DeepSeek free model remains enabled");
 });
 
 check("models.scarce-profile", () => {
@@ -79,12 +137,57 @@ check("models.scarce-profile", () => {
   const runner = readFileSync(join(ROOT, "scripts/fa/runner.mjs"), "utf8");
   assert(/^steps: 1$/m.test(agent), "scarce-model profile is not limited to one turn");
   assert(agent.includes('effect: deny'), "scarce-model profile does not deny tools");
-  assert(runner.includes('model.dailyLimit ? "fa-scarce" : agent'), "runner does not select the scarce-model profile");
+  assert(runner.includes('model.scarce === true ? "fa-scarce" : agent'), "runner does not select the scarce-model profile");
 });
 
 check("execution.deadline", () => {
   const expiredAt = Date.now() - LIMITS.runBudgetMs - 1;
   assert(phaseTimeout(expiredAt, 30_000) === 0, "phase timeout exceeded the run deadline");
+});
+
+check("logging.correlation-id", () => {
+  const attempt = createLogRecord({
+    at: "2026-11-21T00:00:00.000Z",
+    runId: "run-1",
+    taskId: "T04",
+    correlationId: "attempt-uuid",
+    event: "model.start",
+    data: { phase: "executor", model: "nvidia/example" }
+  });
+  const fallback = createLogRecord({
+    at: "2026-11-21T00:00:01.000Z",
+    runId: "run-1",
+    taskId: "T04",
+    correlationId: "attempt-uuid",
+    event: "model.fallback",
+    data: { phase: "executor", model: "nvidia/example" }
+  });
+  const runEvent = createLogRecord({
+    at: "2026-11-21T00:00:02.000Z",
+    runId: "run-1",
+    event: "run.finish"
+  });
+  assert(attempt.correlationId === "attempt-uuid" && fallback.correlationId === attempt.correlationId, "events in one attempt do not share a correlation ID");
+  assert(attempt.traceId === fallback.traceId && /^[a-f0-9]{32}$/.test(attempt.traceId), "correlated events do not share a valid trace ID");
+  assert(/^[a-f0-9]{16}$/.test(attempt.spanId) && attempt.spanId !== fallback.spanId, "log events do not have unique valid span IDs");
+  assert(runEvent.correlationId === "run-1:run", "run-level event does not have a run correlation ID");
+  const otelSpan = createOtlpSpan(attempt);
+  assert(otelSpan.traceId === attempt.traceId && otelSpan.spanId === attempt.spanId, "OTel span IDs do not match structured event IDs");
+  assert(otelSpan.attributes.some((attribute) => attribute.key === "fa.model"), "OTel span is missing model attributes");
+  const toolSpan = createOtlpSpan(
+    { ...attempt, event: "tool.done", at: "2026-11-21T00:00:02.000Z", tool: "shell", toolCallId: "call-1", sandbox: "opencode-policy" },
+    { ...attempt, event: "tool.start", at: "2026-11-21T00:00:01.000Z" }
+  );
+  assert(toolSpan.name === "tool shell", "tool span name does not identify the tool");
+  assert(toolSpan.attributes.some((attribute) => attribute.key === "fa.tool"), "OTel tool span is missing tool metadata");
+  assert(toolSpan.attributes.some((attribute) => attribute.key === "fa.sandbox"), "OTel tool span is missing sandbox metadata");
+  assert(createLogRecord({
+    at: "now",
+    runId: "run-1",
+    correlationId: "attempt-uuid",
+    event: "test",
+    data: { correlationId: "overridden" }
+  }).correlationId === "attempt-uuid", "event data overrode the selected correlation ID");
 });
 
 check("models.roles", () => {
@@ -101,9 +204,12 @@ check("models.roles", () => {
     GEMINI_API_KEY: "test-key",
     GOOGLE_GENERATIVE_AI_API_KEY: "",
     GOOGLE_API_KEY: "",
-    NVIDIA_API_KEY: "test-key"
+    NVIDIA_API_KEY: "test-key",
+    FA_NVIDIA_RPM: "5",
+    FA_NVIDIA_TPM: "250000",
+    FA_NVIDIA_RPD: "20"
   });
-  for (const role of ["planner", "executor", "repair", "reviewer"]) {
+  for (const role of ["planner", "executor", "repair", "reviewer", "simple"]) {
     assert(Array.isArray(roles[role]) && roles[role].length > 0, `${role} has no models`);
   }
   assert(roleCandidates("reviewer", {
@@ -117,7 +223,10 @@ check("models.roles", () => {
       GEMINI_API_KEY: "test-key",
       GOOGLE_GENERATIVE_AI_API_KEY: "",
       GOOGLE_API_KEY: "",
-      NVIDIA_API_KEY: "test-key"
+      NVIDIA_API_KEY: "test-key",
+      FA_NVIDIA_RPM: "5",
+      FA_NVIDIA_TPM: "250000",
+      FA_NVIDIA_RPD: "20"
     }
   }).length > 0, "no reviewer candidates");
   const independent = roleCandidates("reviewer", {
@@ -127,19 +236,22 @@ check("models.roles", () => {
       FA_EXCLUDE_MODELS: "",
       FA_REVIEWER_MODEL: "",
       FA_ALLOW_OPTIONAL: "",
-      FA_MODELS: "google/gemini-3.1-flash-lite,nvidia/nemotron-3-ultra-550b-a55b",
+      FA_MODELS: "google/gemini-2.5-flash,nvidia/nemotron-3-ultra-550b-a55b",
       GEMINI_API_KEY: "test-key",
       GOOGLE_GENERATIVE_AI_API_KEY: "",
       GOOGLE_API_KEY: "",
-      NVIDIA_API_KEY: "test-key"
+      NVIDIA_API_KEY: "test-key",
+      FA_NVIDIA_RPM: "5",
+      FA_NVIDIA_TPM: "250000",
+      FA_NVIDIA_RPD: "20"
     },
-    exclude: ["google/gemini-3.1-flash-lite"]
+    exclude: ["google/gemini-2.5-flash"]
   });
   assert(
     independent.length > 0 &&
       independent[0].id === "nvidia/nemotron-3-ultra-550b-a55b" &&
-      independent.every((model) => model.provider === "nvidia"),
-    "review exclusion did not select only independent provider candidates"
+      independent.some((model) => model.provider === "google"),
+    "review exclusion did not select another NVIDIA reviewer while retaining cross-provider fallback"
   );
 });
 
@@ -154,15 +266,53 @@ check("models.executor-default", () => {
     GEMINI_API_KEY: "test-key",
     GOOGLE_GENERATIVE_AI_API_KEY: "",
     GOOGLE_API_KEY: "",
-    NVIDIA_API_KEY: "test-key"
+    NVIDIA_API_KEY: "test-key",
+    FA_NVIDIA_RPM: "5",
+    FA_NVIDIA_TPM: "250000",
+    FA_NVIDIA_RPD: "20"
   };
   const executorIds = modelsForRole("executor", env).map((model) => model.id);
-  assert(executorIds[0] === "nvidia/kimi-k3.1-pro", "Kimi K3.1 Pro is not the default executor");
-  assert(executorIds.includes("nvidia/nemotron-3-ultra-550b-a55b"), "Nemotron is missing as an NVIDIA fallback");
-  assert(executorIds.at(-1) === "google/gemini-3.1-flash-lite", "Gemini is missing after NVIDIA executor candidates");
+  assert(executorIds[0] === "nvidia/nemotron-3-ultra-550b-a55b", "Nemotron is not the default executor");
+  assert(executorIds.some((id) => id.startsWith("google/")), "Google code model is missing from executor candidates");
+  assert(!executorIds.some((id) => id.includes("flash-lite")), "Flash-Lite must not be used for code");
+  assert(
+    ["google/gemini-4-hydrogen", "google/gemini-3.8-flash", "google/gemini-3.6-flash", "google/gemini-2.5-flash"]
+      .every((id, index, order) => index === 0 || executorIds.indexOf(order[index - 1]) < executorIds.indexOf(id)),
+    "Google code models are not ordered Hydrogen, 3.8, 3.6, 2.5"
+  );
+  assert(Object.keys(DEFAULT_MODEL_ORDER).length === 5, "default model order has duplicate or missing role keys");
+  for (const [role, order] of Object.entries(DEFAULT_MODEL_ORDER)) {
+    assert(new Set(order).size === order.length, `${role} model order contains duplicate IDs`);
+    assert(order.length > 0, `${role} model order is empty`);
+  }
+  assert(
+    modelsForRole("reviewer", env)[0]?.id === "nvidia/nemotron-3-ultra-550b-a55b",
+    "Nemotron Ultra is not the first reviewer model"
+  );
+  assert(
+    modelsForRole("repair", env)[0]?.id === "nvidia/nemotron-3-ultra-550b-a55b",
+    "Nemotron Ultra is not the first repair model"
+  );
+  const modelSource = readFileSync(join(ROOT, "scripts/fa/models.mjs"), "utf8");
+  const orderSource = modelSource.match(/export const DEFAULT_MODEL_ORDER = \{([\s\S]*?)\n\};/)?.[1] || "";
+  const declaredOrderRoles = [...orderSource.matchAll(/^\s{2}(planner|executor|repair|reviewer|simple):/gm)].map((match) => match[1]);
+  assert(
+    declaredOrderRoles.length === 5 && new Set(declaredOrderRoles).size === 5,
+    "DEFAULT_MODEL_ORDER contains duplicate or missing role declarations"
+  );
+  const loopSource = readFileSync(join(ROOT, "scripts/fa/loop.mjs"), "utf8");
+  assert(
+    loopSource.includes("Math.min(LIMITS.taskTimeoutMs, LIMITS.repairTimeoutMs)"),
+    "repair phases do not respect the dedicated timeout cap"
+  );
+  for (const role of ["planner", "executor", "repair", "reviewer"]) {
+    const roleIds = modelsForRole(role, env).map((model) => model.id);
+    assert(roleIds.includes("google/gemini-4-hydrogen"), `${role} does not retain Google Hydrogen fallback`);
+    assert(roleIds.indexOf("google/gemini-4-hydrogen") < roleIds.indexOf("google/gemini-3.8-flash"), `${role} does not prefer Hydrogen over Gemini 3.8 Flash`);
+  }
   assert(modelsForRole("repair", env)[0]?.provider === "nvidia", "NVIDIA is not the default repair model");
-  assert(modelsForRole("planner", env)[0]?.provider === "google", "Gemini is not the default planner");
-  assert(modelsForRole("reviewer", env)[0]?.provider === "google", "Gemini is not the default reviewer");
+  assert(modelsForRole("planner", env)[0]?.provider === "nvidia", "NVIDIA is not the default planner");
+  assert(modelsForRole("reviewer", env)[0]?.provider === "nvidia", "NVIDIA is not the default reviewer");
   const legacy = modelsForRole("executor", {
     ...env,
     FA_MODELS: "xerosharc/claude-sonnet-5-5,openrouter/baidu/ernie-5.5-flash-preview:free"
@@ -170,9 +320,9 @@ check("models.executor-default", () => {
   assert(legacy.map((model) => model.id).join(",") === executorIds.join(","), "legacy provider settings did not fall back to allowed defaults");
   const mixedLegacy = modelsForRole("executor", {
     ...env,
-    FA_MODELS: "google/gemini-3.1-flash-lite,nvidia/kimi-k3.1-pro,nvidia/nemotron-3-ultra-550b-a55b"
+    FA_MODELS: "google/gemini-2.5-flash,nvidia/glm-5.3-flash,nvidia/nemotron-3-ultra-550b-a55b"
   });
-  assert(mixedLegacy[0]?.id === "nvidia/kimi-k3.1-pro", "legacy FA_MODELS ordering overrode the NVIDIA executor default");
+  assert(mixedLegacy[0]?.id === "nvidia/nemotron-3-ultra-550b-a55b", "legacy model order overrode the NVIDIA executor preference");
   const staleProbe = modelsForRole("executor", {
     ...env,
     FA_MODELS: "",
@@ -186,15 +336,24 @@ check("models.executor-default", () => {
   assert(legacyOverride.map((model) => model.id).join(",") === executorIds.join(","), "legacy executor override blocked allowed defaults");
   const selectedWithFallback = modelsForRole("executor", {
     ...env,
-    FA_EXECUTOR_MODEL: "nvidia/kimi-k3.1-pro"
+    FA_EXECUTOR_MODEL: "nvidia/nemotron-3-ultra-550b-a55b"
   });
   assert(
-    selectedWithFallback[0]?.id === "nvidia/kimi-k3.1-pro" &&
+    selectedWithFallback[0]?.id === "nvidia/nemotron-3-ultra-550b-a55b" &&
       selectedWithFallback.some((model) => model.id === executorIds.at(-1)),
     "explicit model selection removed fallback candidates"
   );
-  const geminiOnly = modelsForRole("executor", { ...env, NVIDIA_API_KEY: "", NVIDIA_NIM_API_KEY: "" });
-  assert(geminiOnly.length === 1 && geminiOnly[0].id === "google/gemini-3.1-flash-lite", "Gemini was not used when NVIDIA is unavailable");
+  const liteBlocked = modelsForRole("executor", { ...env, FA_EXECUTOR_MODEL: "google/gemini-3.1-flash-lite" });
+  assert(!liteBlocked.some((model) => model.id === "google/gemini-3.1-flash-lite"), "simple Flash-Lite model was allowed for code");
+  const googleOnly = modelsForRole("executor", { ...env, NVIDIA_API_KEY: "", NVIDIA_NIM_API_KEY: "" });
+  assert(googleOnly.length > 0 && googleOnly.every((model) => model.provider === "google"), "Google code fallback was unavailable without NVIDIA");
+  const cappedNvidia = modelsForRole("executor", {
+    ...env,
+    FA_NVIDIA_RPM: "4",
+    FA_NVIDIA_TPM: "120000",
+    FA_NVIDIA_RPD: "90"
+  })[0];
+  assert(cappedNvidia.rpm === 4 && cappedNvidia.tpm === 120_000 && cappedNvidia.dailyLimit === 90, "NVIDIA account quota overrides were not applied");
 });
 
 check("state.blocked-run-fails", () => {
@@ -212,6 +371,35 @@ check("router.ledger", () => {
   assert(ledger.waitMs(model, 500) > 0, "rate wait should be positive");
   now += 61_000;
   assert(ledger.waitMs(model, 500) === 0, "rate window did not expire");
+  assert(ledger.waitMs(model, 1001) === Infinity, "a request larger than the TPM cap was not rejected");
+});
+
+check("router.provider-quotas", () => {
+  let now = Date.UTC(2026, 10, 21, 12);
+  const ledger = new RateLedger({ now: () => now });
+  const firstModel = {
+    id: "google/gemini-2.5-flash",
+    provider: "google",
+    quotaGroup: "google-standard",
+    rpm: 2,
+    tpm: 250_000
+  };
+  const secondModel = {
+    ...firstModel,
+    id: "google/gemini-3.6-flash"
+  };
+  ledger.record(firstModel, 100);
+  assert(ledger.waitMs(secondModel, 100) === 0, "RPM cap applied before the request limit");
+  ledger.record(secondModel, 100);
+  assert(ledger.waitMs(firstModel, 100) > 0, "RPM was not shared across Google standard models");
+  now += 61_000;
+  assert(ledger.waitMs(firstModel, 100) === 0, "RPM window did not expire");
+
+  const daily = new DailyCallLedger({ now: () => now });
+  assert(daily.reserve(firstModel, 20), "first daily request was not reserved");
+  assert(daily.used(secondModel) === 1, "Google daily requests were not shared across standard models");
+  const lite = { ...firstModel, id: "google/gemini-3.1-flash-lite", quotaGroup: "google-lite" };
+  assert(daily.used(lite) === 0, "lite quota was incorrectly combined with standard quota");
 });
 
 check("router.breaker", () => {
@@ -232,6 +420,24 @@ check("router.breaker", () => {
 check("prompts.contract", () => {
   const problems = validatePrompts();
   assert(problems.length === 0, problems.join("; "));
+  const task = readQueue().find((item) => item.id === "T04");
+  assert(task, "T04 is missing from the task queue");
+  for (const marker of [
+    'loadAccordionState()',
+    'role="combobox"',
+    '["interface"]',
+    'aria-activedescendant',
+    'role="listbox"',
+    'role="option"',
+    "AbortController",
+    ".custom-css-area"
+  ]) {
+    assert(task.acceptance.includes(marker), `T04 acceptance is missing ${marker}`);
+  }
+  const planPrompt = buildPlanPrompt({ task, context: "fixture" });
+  assert(planPrompt.includes("accessibility-критичного acceptance"), "plan prompt does not require concrete accessibility implementation details");
+  const reviewPrompt = buildSpecReviewPrompt({ task, plan: "fixture" });
+  assert(reviewPrompt.includes("accessibility-критичных частей"), "spec-review prompt does not assess accessibility requirements");
   assert(specReviewVerdict("**minor — step 5:** Optional detail.\n\nVERDICT: FAIL") === "PASS", "minor-only plan feedback still blocks implementation");
   assert(specReviewVerdict("**major — step 2:** Acceptance behavior is untestable.\n\nVERDICT: FAIL") === "FAIL", "major plan defect did not block implementation");
   assert(specReviewVerdict("No findings.\n\nVERDICT: PASS") === "PASS", "an explicit passing plan review was rejected");
@@ -288,7 +494,9 @@ await checkAsync("router.token-budget", async () => {
         FA_EXCLUDE_MODELS: "",
         FA_ROUTER_STATE_DIR: join(root, "state"),
         GEMINI_API_KEY: "test-key-one",
-        GEMINI_API_KEY_2: "test-key-two"
+        GEMINI_API_KEY_2: "test-key-two",
+        NVIDIA_API_KEY: "",
+        NVIDIA_NIM_API_KEY: ""
       }
     });
     const first = await session.reserve("planner", { estimateTokens: 40, maxWaitMs: 0 });
@@ -303,6 +511,92 @@ await checkAsync("router.token-budget", async () => {
     assert(session.providerEnv(model).GEMINI_API_KEY === "test-key-two", "Gemini key rotation did not select the next key");
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+await checkAsync("runner.timeout-fallback", async () => {
+  const runDir = mkdtempSync(join(tmpdir(), "fa-runner-"));
+  const models = [
+    { id: "google/first", provider: "google", context: 200_000, tpm: 250_000 },
+    { id: "nvidia/second", provider: "nvidia", context: 200_000, tpm: 250_000 }
+  ];
+  const failed = new Set();
+  const calls = [];
+  const events = [];
+  const session = {
+    candidates: (_role, { exclude = [] } = {}) => models.filter((model) => !failed.has(model.id) && !exclude.includes(model.id)),
+    reserve: async (_role, { exclude = [] } = {}) => {
+      const model = models.find((item) => !failed.has(item.id) && !exclude.includes(item.id));
+      return model ? { ok: true, model, reservation: { model, role: "planner" } } : { ok: false, reason: "no model available" };
+    },
+    providerEnv: (_model, env) => env,
+    failover: (reservation) => failed.add(reservation.model.id),
+    settle: () => {}
+  };
+  try {
+    const result = await runPhase({
+      session,
+      role: "planner",
+      agent: "fa-planner",
+      prompt: "fixture",
+      title: "timeout fallback test",
+      timeoutMs: 2000,
+      runDir,
+      fileBase: "timeout-fallback",
+      markers: ["PLAN_READY"],
+      env: process.env,
+      log: (event, data) => events.push({ event, ...data }),
+      spawnImpl: async ({ args, timeoutMs }) => {
+        calls.push({ model: args[args.indexOf("--model") + 1], timeoutMs });
+        if (calls.length === 1) return { code: 1, signal: "SIGTERM", timedOut: true, spawnError: null, stdout: "", stderr: "" };
+        return { code: 0, signal: null, timedOut: false, spawnError: null, stdout: '{"type":"text","text":"PLAN_READY"}\n', stderr: "" };
+      }
+    });
+    assert(result.kind === "ok" && result.model === "nvidia/second", "runner did not continue with the second model after timeout");
+    assert(result.fallbacks === 1, `timeout fallback count is wrong: ${result.fallbacks}`);
+    assert(calls.length === 2 && calls[0].model === "google/first" && calls[1].model === "nvidia/second", "models were not attempted in order");
+    assert(calls[0].timeoutMs <= 1000, "first model was not capped at half of the phase budget");
+    assert(calls.every((call) => call.timeoutMs <= 2000), "per-model timeout exceeded the phase budget");
+    assert(events.some((event) => event.event === "model.fallback" && event.message.includes("nvidia/second")), "timeout fallback was not logged");
+  } finally {
+    rmSync(runDir, { recursive: true, force: true });
+  }
+});
+
+await checkAsync("runner.timeout-chain-exhausted", async () => {
+  const runDir = mkdtempSync(join(tmpdir(), "fa-runner-"));
+  const models = [
+    { id: "google/first", provider: "google", context: 200_000, tpm: 250_000 },
+    { id: "nvidia/second", provider: "nvidia", context: 200_000, tpm: 250_000 }
+  ];
+  const failed = new Set();
+  const session = {
+    candidates: (_role, { exclude = [] } = {}) => models.filter((model) => !failed.has(model.id) && !exclude.includes(model.id)),
+    reserve: async (_role, { exclude = [] } = {}) => {
+      const model = models.find((item) => !failed.has(item.id) && !exclude.includes(item.id));
+      return model ? { ok: true, model, reservation: { model, role: "planner" } } : { ok: false, reason: "no model available" };
+    },
+    providerEnv: (_model, env) => env,
+    failover: (reservation) => failed.add(reservation.model.id),
+    settle: () => {}
+  };
+  try {
+    const result = await runPhase({
+      session,
+      role: "planner",
+      agent: "fa-planner",
+      prompt: "fixture",
+      title: "timeout exhaustion test",
+      timeoutMs: 2000,
+      runDir,
+      fileBase: "timeout-exhausted",
+      env: process.env,
+      spawnImpl: async () => ({ code: 1, signal: "SIGTERM", timedOut: true, spawnError: null, stdout: "", stderr: "" })
+    });
+    assert(result.kind === "infra" && result.fallbacks === 1, "fully timed-out model chain did not report infrastructure failure");
+    assert(result.model === "nvidia/second", "infrastructure result did not identify the last timed-out model");
+  } finally {
+    rmSync(runDir, { recursive: true, force: true });
   }
 });
 

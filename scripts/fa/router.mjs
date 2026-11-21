@@ -12,6 +12,14 @@ const WINDOW_MS = 60_000;
 const LEDGER_VERSION = 1;
 const DAILY_LEDGER_VERSION = 1;
 
+function quotaGroupFor(model) {
+  if (model.quotaGroup) return model.quotaGroup;
+  const provider = model.provider || providerOf(model.id);
+  if (provider === "google") return model.id.includes("flash-lite") ? "google-lite" : "google-standard";
+  if (provider === "nvidia") return "nvidia";
+  return model.id;
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -56,6 +64,7 @@ export class RateLedger {
         provider: String(entry.provider || ""),
         tokens: entry.tokens,
         model: String(entry.model || ""),
+        quotaGroup: String(entry.quotaGroup || quotaGroupFor({ id: String(entry.model || ""), provider: String(entry.provider || "") })),
         id: String(entry.id || "")
       }));
     this.prune();
@@ -81,33 +90,50 @@ export class RateLedger {
   }
 
   waitMs(model, estimateTokens, at = this.now()) {
+    this.prune(at);
     const tpm = Number(model.tpm) || 0;
-    if (tpm <= 0) return 0;
-    const used = this.used(model.provider || providerOf(model.id), at);
-    const projected = used + Math.max(0, estimateTokens);
-    if (projected <= tpm) return 0;
-
-    // Ждём, пока самое старое использование выйдет из минутного окна.
-    const providerEntries = this.entries
-      .filter((entry) => entry.provider === (model.provider || providerOf(model.id)))
-      .sort((a, b) => a.at - b.at);
-    let overflow = projected - tpm;
-    let wait = 0;
-    for (const entry of providerEntries) {
-      overflow -= entry.tokens;
-      wait = Math.max(wait, WINDOW_MS - (at - entry.at) + 150);
-      if (overflow <= 0) break;
+    if (model.tpm !== undefined && tpm === 0) return Infinity;
+    if (model.rpm !== undefined && Number(model.rpm) === 0) return Infinity;
+    if (tpm > 0 && estimateTokens > tpm) return Infinity;
+    let tokenWait = 0;
+    if (tpm > 0) {
+      const used = this.used(model.provider || providerOf(model.id), at);
+      const projected = used + Math.max(0, estimateTokens);
+      if (projected > tpm) {
+        const providerEntries = this.entries
+          .filter((entry) => entry.provider === (model.provider || providerOf(model.id)))
+          .sort((a, b) => a.at - b.at);
+        let overflow = projected - tpm;
+        for (const entry of providerEntries) {
+          overflow -= entry.tokens;
+          tokenWait = Math.max(tokenWait, WINDOW_MS - (at - entry.at) + 150);
+          if (overflow <= 0) break;
+        }
+      }
     }
-    return Math.max(0, wait);
+
+    const rpm = Number(model.rpm) || 0;
+    let requestWait = 0;
+    if (rpm > 0) {
+      const quotaGroup = quotaGroupFor(model);
+      const requests = this.entries
+        .filter((entry) => (entry.quotaGroup || entry.model) === quotaGroup)
+        .sort((a, b) => a.at - b.at);
+      if (requests.length >= rpm) {
+        requestWait = Math.max(0, WINDOW_MS - (at - requests[0].at) + 150);
+      }
+    }
+
+    return Math.max(0, tokenWait, requestWait);
   }
 
   record(model, tokens, at = this.now(), id = "") {
     const value = Number(tokens) || 0;
-    if (value === 0) return;
     this.entries.push({
       at,
       provider: model.provider || providerOf(model.id),
       model: model.id || "",
+      quotaGroup: quotaGroupFor(model),
       tokens: value,
       id
     });
@@ -143,7 +169,21 @@ export class DailyCallLedger {
   load() {
     if (!this.file || !existsSync(this.file)) return this;
     const data = readJson(this.file, null);
-    if (data?.entries && typeof data.entries === "object") this.entries = data.entries;
+    if (data?.entries && typeof data.entries === "object") {
+      this.entries = Object.fromEntries(
+        Object.entries(data.entries).map(([day, counts]) => {
+          if (!counts || typeof counts !== "object" || Array.isArray(counts)) return [day, {}];
+          const migrated = { ...counts };
+          for (const [id, count] of Object.entries(counts)) {
+            if (!id.startsWith("google/")) continue;
+            const group = id.includes("flash-lite") ? "google-lite" : "google-standard";
+            migrated[group] = (migrated[group] || 0) + (Number(count) || 0);
+            delete migrated[id];
+          }
+          return [day, migrated];
+        })
+      );
+    }
     this.prune();
     return this;
   }
@@ -160,14 +200,15 @@ export class DailyCallLedger {
   }
 
   used(model, at = this.now()) {
-    return Number(this.entries[this.day(at)]?.[model.id]) || 0;
+    return Number(this.entries[this.day(at)]?.[quotaGroupFor(model)]) || 0;
   }
 
   reserve(model, limit, at = this.now()) {
     const day = this.day(at);
-    const used = Number(this.entries[day]?.[model.id]) || 0;
+    const quotaGroup = quotaGroupFor(model);
+    const used = Number(this.entries[day]?.[quotaGroup]) || 0;
     if (used >= limit) return false;
-    this.entries[day] = { ...(this.entries[day] || {}), [model.id]: used + 1 };
+    this.entries[day] = { ...(this.entries[day] || {}), [quotaGroup]: used + 1 };
     this.save();
     return true;
   }
@@ -349,7 +390,7 @@ export class ModelSession {
         }
         dailyLimit = parsedDailyLimit;
       }
-      const hasDailyLimit = Boolean(model.dailyLimitEnv || model.dailyLimit);
+      const hasDailyLimit = Boolean(model.dailyLimitEnv) || model.dailyLimit !== undefined;
       if (hasDailyLimit && this.dailyCalls.used(model, this.now()) >= dailyLimit) {
         skipped.push(`${model.id}: daily request limit ${dailyLimit} reached`);
         continue;
@@ -359,6 +400,10 @@ export class ModelSession {
         continue;
       }
       const wait = this.ledger.waitMs(model, estimateTokens, this.now());
+      if (!Number.isFinite(wait)) {
+        skipped.push(`${model.id}: estimated request exceeds the provider TPM cap`);
+        continue;
+      }
       shortestWait = Math.min(shortestWait, wait);
       if (wait > maxWaitMs) {
         skipped.push(`${model.id}: rate limit ${Math.round(wait / 1000)}s`);
@@ -412,9 +457,17 @@ export class ModelSession {
     }
   }
 
+  release(reservation) {
+    if (!reservation) return;
+    this.ledger.entries = this.ledger.entries.filter((entry) => entry.id !== reservation.id);
+    this.ledger.save();
+    this.reservedTokens = Math.max(0, this.reservedTokens - reservation.tokens);
+    this.reservations = this.reservations.filter((item) => item.id !== reservation.id);
+  }
+
   /** Модель сломалась на конкретном шаге, но роль должна продолжить. */
-  failover(reservation, category, reason = "") {
-    this.settle(reservation, { category });
+  failover(reservation, category, reason = "", actualTokens = 0) {
+    this.settle(reservation, { category, actualTokens });
     if (category === "quota" || category === "unavailable" || category === "auth") {
       this.breaker.trip(reservation.model.id, category, reason);
     }

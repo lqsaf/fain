@@ -2,8 +2,7 @@
 // This module is dependency-free and side-effect free.
 
 export const PROTECTED_GLOBS = [
-  ".github/workflows/fa.yml",
-  ".github/workflows/fa-verify.yml",
+  ".github/workflows/fa*.yml",
   ".github/CODEOWNERS",
   ".github/pull_request_template.md",
   ".githooks/**",

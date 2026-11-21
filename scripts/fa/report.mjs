@@ -67,6 +67,7 @@ export function statusMarkdown(tasks, summary, meta = {}) {
       `- Задач заблокировано: ${summary.tasksBlocked ?? 0}`,
       `- Модель: ${summary.model || "n/a"}, fallback: ${summary.modelFallbacks ?? 0}`,
       `- Токены: ${summary.tokens?.total ?? 0}`,
+      `- Стоимость: $${Number(summary.cost?.total || 0).toFixed(6)}${summary.cost?.anomaly ? " (аномалия)" : ""}`,
       `- Длительность: ${Math.round((summary.durationMs || 0) / 1000)} s`
     );
 
@@ -103,6 +104,7 @@ export function prBody(tasks, summary, meta = {}) {
       `- Выполнено: ${summary.tasksDone ?? 0}, заблокировано: ${summary.tasksBlocked ?? 0}`,
       `- Модель: ${summary.model || "n/a"}, fallback: ${summary.modelFallbacks ?? 0}`,
       `- Токены: ${summary.tokens?.total ?? 0}, длительность: ${Math.round((summary.durationMs || 0) / 1000)} s`,
+      `- Стоимость: $${Number(summary.cost?.total || 0).toFixed(6)}${summary.cost?.anomaly ? " (аномалия)" : ""}`,
       ""
     );
   }

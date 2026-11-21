@@ -14,7 +14,7 @@
 Нужно:
 
 1. Один запуск — ровно одна задача из `TASKS.md`, затем завершение.
-2. Крон каждые 30 минут поднимает следующий запуск.
+2. Часовой cron поднимает следующий запуск после завершения предыдущей задачи.
 3. Модели выбираются в одном месте.
 4. При квоте/429/401 провайдера FA переключается на следующую модель и продолжает шаг.
 5. У каждого провайдера свой ключ.
@@ -23,10 +23,12 @@
 
 - Ровно одна задача за запуск: `loop.mjs` после первой задачи выходит. `mode=run` и `mode=once`
   эквивалентны, `once` оставлен как совместимый алиас.
-- GitHub Actions watchdog — `*/30 * * * *`, job timeout 90 минут.
-- Единый реестр моделей — `scripts/fa/models.mjs`: разрешены только Gemini и NVIDIA NIM catalog models. Gemini предпочитается для планирования/ревью, NVIDIA — для реализации/починки; каждая роль сохраняет cross-provider fallback.
+- GitHub Actions watchdog — `0 * * * *`, job timeout 210 минут; задаче даётся до 60 минут, запуску — до 180 минут.
+- Единый реестр моделей — `scripts/fa/models.mjs`: NVIDIA Nemotron и другие доступные NVIDIA NIM модели первичны во всех ролях, Google code-capable Gemini — последний fallback. Kimi K3.1 Pro, Step 5 Preview и Mistral Large отключены из-за нерабочих API вызовов.
+- Flash-Lite модели доступны только в отдельной роли `simple`; стандартные и Lite Google quota groups независимо учитывают RPM/TPM/RPD. Account-specific NVIDIA limits задаются через `FA_NVIDIA_RPM`, `FA_NVIDIA_TPM`, `FA_NVIDIA_RPD`.
 - Ручной `workflow_dispatch` принимает per-role model choices; `inherit` использует role-aware default chain. `FA_MODELS` меняет предпочтения общего fallback, стандартные модели дополняют цепочку, а role-priority провайдера сохраняется.
 - Gemini secrets `GEMINI_API_KEY` … `GEMINI_API_KEY_5` ротируются при quota; Actions cache сохраняет модельное состояние, память и до пяти checkpoint-запусков.
+- При изменении model registry `fa-verify` запускает `fa:eval`; структурированные логи коррелируются trace/span IDs и экспортируются в OTLP/JSON. Итоговый cost сравнивается с медианой последних измеренных запусков.
 - `--model` передаётся только оркестратором; в `.opencode/agents/*.md` модели нет.
 - Ошибки `quota`, `auth`, `unavailable` классифицируются в `models.mjs`.
   При них частичные правки откатываются, запускается следующая модель с тем же

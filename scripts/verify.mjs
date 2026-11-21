@@ -167,6 +167,7 @@ const REQUIRED_FILES = [
   "opencode.jsonc",
   "package.json",
   ".gitignore",
+  ".github/workflows/fa-quarterly-audit.yml",
   "docs/harness/README.md",
   "docs/harness/OPERATING.md",
   "docs/CONVENTIONS.md",
@@ -177,6 +178,7 @@ const REQUIRED_FILES = [
   "scripts/verify.mjs",
   "scripts/fa/models.mjs",
   "scripts/fa/router.mjs",
+  "scripts/fa/telemetry.mjs",
   "scripts/fa/runner.mjs",
   "scripts/fa/context.mjs",
   "scripts/fa/memory.mjs",
@@ -199,7 +201,8 @@ const HARNESS_DOCS = [
   "GOVERNANCE.md",
   "OPERATING.md",
   "CHECKLIST.md",
-  "PROMPTS.md"
+  "PROMPTS.md",
+  "TEMPLATE.md"
 ];
 
 async function checkRequiredFiles() {
@@ -559,7 +562,12 @@ async function checkModelRegistry() {
     for (const role of model.roles || []) {
       if (!models.MODEL_ROLES.includes(role)) problems.push(`models.mjs: ${model.id} has unknown role ${role}`);
     }
-    if (!(Number(model.tpm) > 0)) problems.push(`models.mjs: ${model.id} has no tpm limit`);
+    if (model.provider === "google" && Number(model.tpm) !== 250_000) {
+      problems.push(`models.mjs: ${model.id} must use the configured Google TPM ceiling`);
+    }
+    if (model.provider === "google" && (!Number(model.rpm) || !Number(model.dailyLimit))) {
+      problems.push(`models.mjs: ${model.id} is missing Google RPM/RPD limits`);
+    }
     if (!(Number(model.context) > 0)) problems.push(`models.mjs: ${model.id} has no context limit`);
   }
 
@@ -576,7 +584,10 @@ async function checkModelRegistry() {
     GEMINI_API_KEY: "verify-test-key",
     GOOGLE_GENERATIVE_AI_API_KEY: "",
     GOOGLE_API_KEY: "",
-    NVIDIA_API_KEY: "verify-test-key"
+    NVIDIA_API_KEY: "verify-test-key",
+    FA_NVIDIA_RPM: "5",
+    FA_NVIDIA_TPM: "250000",
+    FA_NVIDIA_RPD: "20"
   });
   for (const role of models.MODEL_ROLES) {
     if (!Array.isArray(roles[role]) || roles[role].length === 0) problems.push(`models.mjs: role ${role} is empty`);
@@ -586,9 +597,8 @@ async function checkModelRegistry() {
     problems.push("models.mjs: NVIDIA NIM must use the active Nemotron model");
   }
   const configuredNvidiaIds = [
-    "nvidia/kimi-k3.1-pro",
-    "nvidia/step-5-preview",
-    "nvidia/mistral-large-4-1t-a52b",
+    "nvidia/nemotron-3.5-super-vl-120b-a12b",
+    "nvidia/nemotron-3.5-lightning-30b-a3b",
     "nvidia/glm-5.3-flash",
     "nvidia/minimax-m3.1-flash",
     "nvidia/laguna-xs-2.1",
@@ -615,21 +625,88 @@ async function checkModelRegistry() {
     GOOGLE_GENERATIVE_AI_API_KEY: "",
     GOOGLE_API_KEY: "",
     NVIDIA_API_KEY: "verify-test-key",
-    NVIDIA_NIM_API_KEY: ""
+    NVIDIA_NIM_API_KEY: "",
+    FA_NVIDIA_RPM: "5",
+    FA_NVIDIA_TPM: "250000",
+    FA_NVIDIA_RPD: "20"
   };
+  const simpleModels = models.modelsForRole("simple", {
+    ...legacyEnv,
+    FA_MODELS: "",
+    FA_SIMPLE_MODEL: ""
+  }).map((model) => model.id);
+  if (
+    simpleModels.slice(0, 3).join(",") !==
+    "nvidia/nemotron-3.5-lightning-30b-a3b,google/gemini-3.5-flash-lite,google/gemini-3.1-flash-lite"
+  ) {
+    problems.push("models.mjs: simple tasks must use NVIDIA Lightning, then Gemini 3.5 and 3.1 Flash-Lite");
+  }
+  const loopSource = read("scripts/fa/loop.mjs");
+  if (!loopSource.includes('task?.area === "simple"') || !loopSource.includes("\\.(?:md|mdx|txt|rst|adoc)$")) {
+    problems.push("loop.mjs: simple-model routing is not restricted to explicitly labeled text-only tasks");
+  }
   const defaultExecutor = models.modelsForRole("executor", {
     ...legacyEnv,
     FA_MODELS: "",
     FA_EXECUTOR_MODEL: ""
   }).map((model) => model.id);
-  if (defaultExecutor[0] !== "nvidia/kimi-k3.1-pro" || !defaultExecutor.includes("google/gemini-3.1-flash-lite")) {
-    problems.push("models.mjs: executor must prefer Kimi via NVIDIA and retain Gemini fallback");
+  if (defaultExecutor[0] !== "nvidia/nemotron-3-ultra-550b-a55b" || !defaultExecutor.includes("google/gemini-2.5-flash") || defaultExecutor.includes("google/gemini-3.1-flash-lite")) {
+    problems.push("models.mjs: executor must prefer Nemotron via NVIDIA and retain Gemini fallback");
+  }
+  const googleCodeOrder = [
+    "google/gemini-4-hydrogen",
+    "google/gemini-3.8-flash",
+    "google/gemini-3.6-flash",
+    "google/gemini-2.5-flash"
+  ].map((id) => defaultExecutor.indexOf(id));
+  if (googleCodeOrder.some((index) => index < 0) || googleCodeOrder.some((index, i) => i > 0 && googleCodeOrder[i - 1] >= index)) {
+    problems.push("models.mjs: Google code fallback order must be Hydrogen, 3.8, 3.6, 2.5");
+  }
+  const roleLeads = ["planner", "executor", "repair", "reviewer"].map(
+    (role) => models.modelsForRole(role, legacyEnv)[0]?.id
+  );
+  if (roleLeads[3] !== "nvidia/nemotron-3-ultra-550b-a55b") {
+    problems.push("models.mjs: reviewer must prefer Nemotron Ultra");
+  }
+  if (roleLeads[2] !== "nvidia/nemotron-3-ultra-550b-a55b") {
+    problems.push("models.mjs: repair must prefer Nemotron Ultra");
+  }
+  for (const [role, order] of Object.entries(models.DEFAULT_MODEL_ORDER)) {
+    if (new Set(order).size !== order.length) {
+      problems.push(`models.mjs: ${role} default order contains duplicate model IDs`);
+    }
+    if (!Array.isArray(roles[role]) || !models.MODEL_ROLES.includes(role)) {
+      problems.push(`models.mjs: unexpected default order role "${role}"`);
+    }
+  }
+  const modelSource = read("scripts/fa/models.mjs");
+  const orderSource = modelSource.match(/export const DEFAULT_MODEL_ORDER = \{([\s\S]*?)\n\};/)?.[1] || "";
+  const declaredOrderRoles = [...orderSource.matchAll(/^\s{2}(planner|executor|repair|reviewer|simple):/gm)].map((match) => match[1]);
+  if (declaredOrderRoles.length !== 5 || new Set(declaredOrderRoles).size !== 5) {
+    problems.push("models.mjs: DEFAULT_MODEL_ORDER must declare each role exactly once");
+  }
+  for (const role of ["planner", "executor", "repair", "reviewer"]) {
+    const candidates = models.modelsForRole(role, legacyEnv);
+    if (candidates[0]?.provider !== "nvidia" || !candidates.some((model) => model.provider === "google")) {
+      problems.push(`models.mjs: ${role} must prefer NVIDIA and retain Google code-model fallback`);
+    }
+    const hydrogenIndex = candidates.findIndex((model) => model.id === "google/gemini-4-hydrogen");
+    const flash38Index = candidates.findIndex((model) => model.id === "google/gemini-3.8-flash");
+    if (hydrogenIndex < 0 || flash38Index < 0 || hydrogenIndex > flash38Index) {
+      problems.push(`models.mjs: ${role} must prefer Google Hydrogen over Gemini 3.8 Flash`);
+    }
+  }
+  if (models.modelsForRole("executor", {
+    ...legacyEnv,
+    FA_EXECUTOR_MODEL: "google/gemini-3.1-flash-lite"
+  }).some((model) => model.id === "google/gemini-3.1-flash-lite")) {
+    problems.push("models.mjs: Flash-Lite must not be selectable for code execution");
   }
   const mixedLegacy = models.modelsForRole("executor", {
     ...legacyEnv,
-    FA_MODELS: "google/gemini-3.1-flash-lite,nvidia/kimi-k3.1-pro,nvidia/nemotron-3-ultra-550b-a55b"
+    FA_MODELS: "google/gemini-2.5-flash,nvidia/glm-5.3-flash,nvidia/nemotron-3-ultra-550b-a55b"
   });
-  if (mixedLegacy[0]?.id !== "nvidia/kimi-k3.1-pro") {
+  if (mixedLegacy[0]?.id !== "nvidia/nemotron-3-ultra-550b-a55b") {
     problems.push("models.mjs: legacy FA_MODELS ordering overrode the NVIDIA executor default");
   }
   for (const role of models.MODEL_ROLES) {
@@ -643,8 +720,8 @@ async function checkModelRegistry() {
     FA_MODELS: "",
     FA_AVAILABLE_MODELS: "xerosharc/claude-sonnet-5-5"
   });
-  if (staleProbe[0]?.id !== "nvidia/kimi-k3.1-pro") {
-    problems.push("models.mjs: stale provider probe blocked the Kimi executor default");
+  if (staleProbe[0]?.id !== "nvidia/nemotron-3-ultra-550b-a55b") {
+    problems.push("models.mjs: stale provider probe blocked the Nemotron executor default");
   }
   if (!read("opencode.jsonc").includes('"modelID": "nvidia/nemotron-3-ultra-550b-a55b"')) {
     problems.push("opencode.jsonc: NVIDIA NIM modelID does not match the live API model ID");
@@ -652,21 +729,48 @@ async function checkModelRegistry() {
   const config = JSON.parse(stripJsonc(read("opencode.jsonc")));
   const configuredModels = config.providers?.nvidia?.models || {};
   const requiredModelIds = {
-    "kimi-k3.1-pro": "moonshotai/kimi-k3.1-pro",
-    "step-5-preview": "stepfun-ai/step-5-preview",
-    "mistral-large-4-1t-a52b": "mistralai/mistral-large-4-1t-a52b",
+    "nemotron-3.5-super-vl-120b-a12b": "nvidia/nemotron-3.5-super-vl-120b-a12b",
+    "nemotron-3.5-lightning-30b-a3b": "nvidia/nemotron-3.5-lightning-30b-a3b",
     "glm-5.3-flash": "z-ai/glm-5.3-flash",
     "minimax-m3.1-flash": "minimaxai/minimax-m3.1-flash",
-    "laguna-xs-2.1": "poolside/laguna-xs-2.1"
+    "laguna-xs-2.1": "poolside/laguna-xs-2.1",
+    "nemotron-3-ultra-550b-a55b": "nvidia/nemotron-3-ultra-550b-a55b"
   };
   const workflow = read(".github/workflows/fa.yml");
   for (const [id, modelID] of Object.entries(requiredModelIds)) {
     if (configuredModels[id]?.modelID !== modelID) {
       problems.push(`opencode.jsonc: NVIDIA model ${id} must use API ID ${modelID}`);
     }
-    if (!workflow.includes(`- ${id}`)) {
+    if (!workflow.includes(`- nvidia/${id}`)) {
       problems.push(`fa.yml: workflow_dispatch is missing NVIDIA model choice nvidia/${id}`);
     }
+  }
+  if (configuredModels["deepseek-v4.1-flash"] || workflow.includes("nvidia/deepseek-v4.1-flash")) {
+    problems.push("DeepSeek V4.1 Flash is unavailable and must not be configured");
+  }
+  if (read("opencode.jsonc").includes("deepseek-v4.1-flash")) {
+    problems.push("opencode.jsonc: unavailable DeepSeek V4.1 Flash remains configured");
+  }
+  const taskConfig = read("scripts/fa/config.mjs");
+  if (
+    !taskConfig.includes('readNumber("FA_REPAIR_TIMEOUT_MIN", 30)') ||
+    !taskConfig.includes("repairTimeoutMin > 30")
+  ) {
+    problems.push("config.mjs: repair phase must enforce a maximum 30-minute timeout");
+  }
+  if (!read("scripts/fa/loop.mjs").includes("Math.min(LIMITS.taskTimeoutMs, LIMITS.repairTimeoutMs)")) {
+    problems.push("loop.mjs: repair phase does not enforce its dedicated timeout cap");
+  }
+  const googleModels = config.providers?.google?.models || {};
+  for (const id of [
+    "gemini-2.5-flash",
+    "gemini-3.6-flash",
+    "gemini-3.8-flash",
+    "gemini-4-hydrogen",
+    "gemini-3.1-flash-lite",
+    "gemini-3.5-flash-lite"
+  ]) {
+    if (!googleModels[id]) problems.push(`opencode.jsonc: Google model ${id} is not configured`);
   }
   if (/xerosharc|openrouter/i.test(read("opencode.jsonc"))) {
     problems.push("opencode.jsonc: removed provider configuration remains");
@@ -695,7 +799,7 @@ async function checkScarceAgent() {
   const runner = read("scripts/fa/runner.mjs");
   assert(/^steps: 1$/m.test(agent), "fa-scarce agent must make at most one model turn");
   assert(/action:\s*"\*"\s*\n\s*resource:\s*"\*"\s*\n\s*effect:\s*deny/.test(agent), "fa-scarce agent must not have tool access");
-  assert(runner.includes('model.dailyLimit ? "fa-scarce" : agent'), "runner does not select the single-turn agent for capped models");
+  assert(runner.includes('model.scarce === true ? "fa-scarce" : agent'), "runner does not select the single-turn agent for explicitly scarce models");
   return "one-turn model profile";
 }
 
@@ -714,6 +818,7 @@ async function checkPrompts() {
 async function checkHarnessModules() {
   const modules = [
     ["router.mjs", ["ModelSession", "RateLedger", "Breaker", "roleCandidates"]],
+    ["telemetry.mjs", ["recordTrace", "flushTelemetry", "buildOtlpPayload", "createOtlpSpan"]],
     ["context.mjs", ["buildContext", "contextForTask"]],
     ["memory.mjs", ["loadMemory", "addMemory", "searchMemory"]],
     ["state.mjs", ["createRunState", "saveCheckpoint", "canResume"]],

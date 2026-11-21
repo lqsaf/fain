@@ -11,6 +11,7 @@
 | stderr OpenCode | `fa/logs/<run>/<task>.err.log` | диагностика процесса |
 | Результат проверок | `fa/logs/<run>/verify-<task>.json` | errors/warnings/checks |
 | Сводка | `fa/logs/<run>/summary.json` | длительности, попытки, диффы |
+| OTLP trace batch | `fa/logs/<run>/traces.otlp.json` | модельные spans и события с trace/span IDs; совместим с OTLP/JSON |
 | Статус | `fa/logs/STATUS.md` | таблица очереди и последний запуск |
 | GitHub artifact | `fa-logs-<run>` | всё вышеперечисленное, `if: always()` |
 | PR body | автоматически | статус очереди и последние задачи |
@@ -24,9 +25,16 @@
 - ошибки инструментов и их доля;
 - токены (input/output/reasoning/cache) и стоимость, если провайдер их отдаёт;
 - длительность задачи и всего запуска;
+- стоимость по фазам, медиана прошлых запусков и флаг аномалии (> 2× медианы);
 - файлы и строки диффа.
 
 Парсер терпим к схеме событий: ищет поля рекурсивно, не падает на неизвестных событиях. Если схема изменится, метрики деградируют, но запуск не сломается.
+
+## Distributed traces
+
+Каждая запись `run.jsonl` содержит стабильный `traceId` на correlation ID и уникальный `spanId`. Model calls оформляются как spans от `model.start` до `model.done`/fallback. Tool spans реконструируются из переходов состояния в JSONL OpenCode и включают имя инструмента, задачу, фазу, модель, sandbox policy, статус и длительность; аргументы и выводы инструментов не экспортируются. Остальные структурированные события экспортируются как короткие spans. Payload сохраняется в `traces.otlp.json` без текста промпта и тел ошибок провайдера.
+
+Для внешнего OTLP HTTP backend задайте `OTEL_EXPORTER_OTLP_ENDPOINT` (base URL) или `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` (точный `/v1/traces` URL). Аутентификационные headers передавайте только через secret `OTEL_EXPORTER_OTLP_HEADERS`. При отсутствии endpoint локальный OTLP JSON всё равно попадает в artifact. Ошибка внешнего экспорта явно выводится в stderr, но не прерывает выполнение задачи.
 
 ## Детект плохих циклов
 
@@ -42,6 +50,8 @@
 - Блокировка задачи → issue с причиной, ID, ссылкой на PR и последними 20 строками ошибки (без секретов).
 - 3 инфра-провала → issue `FA infrastructure failure` и остановка.
 - Упавший `verify` в PR → GitHub check (`fa-verify.yml`) и красный статус.
+- Стоимость текущего запуска > 2× медианы до 30 прошлых запусков → `cost.anomaly` в `run.jsonl`, warning и поле `cost.anomaly` в summary.
+- Ошибка получает ETCLOVG-тег (`E/T/C/L/O/V/G`) в логах; блокирующий issue содержит тег слоя.
 - Ошибки в job → аннотация `::error::` с ID задачи.
 
 ## Расследование

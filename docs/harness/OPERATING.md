@@ -5,26 +5,32 @@ FA живёт в GitHub Actions и не требует ноутбука. Это�
 ## Что нужно один раз
 
 1. **Ключи провайдеров.** `Settings → Secrets and variables → Actions → New repository secret`.
-   Добавьте хотя бы один `GEMINI_API_KEY` (planner/reviewer и fallback для executor/repair) и `NVIDIA_API_KEY` либо `NVIDIA_NIM_API_KEY` (основной executor/repair). Для ротации Gemini можно добавить `GEMINI_API_KEY_2` … `_5`.
+   Добавьте хотя бы один `GEMINI_API_KEY` (cross-provider fallback для кодовых ролей) и `NVIDIA_API_KEY` либо `NVIDIA_NIM_API_KEY` (основной провайдер всех ролей). Для ротации Gemini можно добавить `GEMINI_API_KEY_2` … `_5`.
+   Задайте repository variables `FA_NVIDIA_RPM`, `FA_NVIDIA_TPM`, `FA_NVIDIA_RPD` по квоте вашего NVIDIA API key: публичная документация не задаёт универсальный лимит для всех Catalog endpoints и аккаунтов.
    Если ключа провайдера нет, его модели пропускаются; preflight требует хотя бы одну доступную модель на каждую роль.
-2. **Модели.** В `Actions → FA → Run workflow` можно отдельно выбрать planner, executor, repair и reviewer; `inherit` означает стандартный роутинг из `scripts/fa/models.mjs`. Расписание также использует стандартный роутинг; устаревшие per-role repo variables игнорируются, чтобы не прикрепить исполнение к Gemini. `FA_MODELS` остаётся общим списком fallback, но предпочтение provider для каждой роли сохраняется.
+2. **Модели.** В `Actions → FA → Run workflow` можно отдельно выбрать planner, executor, repair и reviewer; `inherit` означает стандартный роутинг из `scripts/fa/models.mjs`. Расписание использует только стандартный роутинг и code-owned лимиты времени: repo variables `FA_MODELS`, `FA_TASK_TIMEOUT_MIN`, `FA_RUN_BUDGET_MIN`, `FA_MODEL_TIMEOUT_MIN` и `FA_REPAIR_TIMEOUT_MIN` не передаются. Старые `FA_*_MODEL` repo variables также игнорируются. Локальный запуск может задавать `FA_MODELS` и `FA_*_TIMEOUT_MIN` через окружение.
 3. **Права.** В `Settings → Actions → General → Workflow permissions` разрешить `Read and write permissions`.
-4. **Branch protection для `main`.** Только PR, обязательный check `fa-verify`, запрет force-push и удаления. Merge делает человек. Заблокированная задача теперь завершает FA job с ошибкой, чтобы `done=0, blocked>0` не выглядело успешным запуском.
+4. **Branch protection для `main`.** Только PR, обязательный check `fa-verify`, запрет force-push и удаления, обязательное одобрение Code Owner для совпавших с `CODEOWNERS` файлов. Merge делает человек. Заблокированная задача теперь завершает FA job с ошибкой, чтобы `done=0, blocked>0` не выглядело успешным запуском.
 5. **Опционально `FA_PAT`.** Fine-grained token с правами `contents`, `pull-requests`, `issues`. Нужен, чтобы PR, созданный FA, запускал проверки: push с `GITHUB_TOKEN` не триггерит другие workflow.
 6. **Включение.** Переменная `FA_ENABLED`:
    - не задана или `true` — FA работает;
    - `false` — новый запуск не стартует.
 
-После этого расписание `*/30 * * * *` запускает ровно одну задачу, если очередь не пуста и нет стоп-сигнала. GitHub может задержать cron; долгий job также занимает общую concurrency-группу.
+После этого расписание `0 * * * *` запускает ровно одну задачу, если очередь не пуста и нет стоп-сигнала. GitHub может задержать cron; долгий job также занимает общую concurrency-группу.
+
+Раз в квартал `FA quarterly harness audit` создаёт issue с чек-листом пересмотра таймаутов, квот, scaffolding, telemetry и branch protection. Workflow не запускает модели и не меняет конфигурацию автоматически.
 
 ## Переменные
 
 | Переменная | По умолчанию | Смысл |
 | --- | --- | --- |
-| `FA_MODELS` | пусто, стандартный список из кода | предпочтения общего fallback; стандартные кандидаты добавляются в конец, провайдеры вне Google/NVIDIA отфильтровываются |
+| `FA_MODELS` | пусто, стандартный список из кода | локальный override общей цепочки; стандартные кандидаты дополняют fallback, провайдеры вне Google/NVIDIA отфильтровываются; не применяется в Actions |
 | `FA_ENABLED` | включено | глобальный выключатель |
-| `FA_TASK_TIMEOUT_MIN` | `25` | таймаут одной задачи |
-| `FA_RUN_BUDGET_MIN` | `90` | бюджет времени запуска |
+| `FA_TASK_TIMEOUT_MIN` | `90` | таймаут одной задачи |
+| `FA_RUN_BUDGET_MIN` | `240` | бюджет времени запуска |
+| `FA_MODEL_TIMEOUT_MIN` | `60` | максимальное время одного модельного вызова |
+| `FA_REPAIR_TIMEOUT_MIN` | `30` | общий лимит repair-фазы, включая fallback; допустимо 1–30 минут |
+| `FA_PREFLIGHT_MODEL_TIMEOUT_MIN` | `2` | таймаут одного вызова при явном model-capability probe |
 | `FA_MAX_ATTEMPTS` | `2` | попыток на задачу |
 | `FA_TOKEN_BUDGET` | `2000000` | токен-бюджет запуска |
 | `FA_MAX_INFRA_FAILURES` | `3` | инфра-провалов подряд до остановки |
@@ -32,11 +38,11 @@ FA живёт в GitHub Actions и не требует ноутбука. Это�
 
 Секреты и переменные не хранятся в репозитории. В `.env` и `.dev.vars` FA не заглядывает.
 
-При `inherit` стандартный маршрут предпочитает Gemini Flash-Lite для планирования и ревью, NVIDIA Kimi K3.1 Pro — для реализации и ремонта. При исчерпании/недоступности NVIDIA роутер проверяет остальные доступные NVIDIA coding models, Nemotron, затем Gemini. Явный выбор роли в форме workflow меняет её предпочтение. Старые XEROSHARC/OpenRouter значения в `FA_MODELS` автоматически пропускаются.
+При `inherit` кодовые роли имеют разные NVIDIA-предпочтения; их Google fallback упорядочен Gemini 4 Hydrogen → 3.8 Flash → 3.6 Flash → 2.5 Flash. Явно помеченные `area: simple` задачи с текстовыми файлами используют Nemotron 3.5 Lightning → Gemini 3.5 Flash-Lite → Gemini 3.1 Flash-Lite; они не попадают в кодовые роли. Суточная квота standard Google общая для моделей группы (5 RPM, 250000 TPM, 20 RPD); Lite использует отдельную группу (15 RPM, 250000 TPM, 500 RPD). Явный выбор роли в форме workflow меняет её предпочтение только внутри разрешённой роли и каталога.
 
-NVIDIA route сейчас включает Kimi K3.1 Pro, Step 5 Preview, Mistral Large 4, GLM-5.3-Flash, MiniMax M3.1 Flash, Laguna XS 2.1 и Nemotron 3 Ultra. Их model IDs сверены с публичным NVIDIA Integrate `/v1/models` каталогом 21 ноября 2026 года; этот каталог подтверждает наличие endpoint ID, но не гарантирует, что конкретный API key имеет доступ или что все модели принимают одинаковую форму вызова. Недоступная модель должна fallback-нуться; первые CI вызовы нужны для проверки реального доступа к аккаунту.
+Для явной диагностики модельных способностей запустите `npm run fa:doctor -- --probe-capabilities`. Команда вызывает каждую модель с доступным ключом, записывает pass/fail, latency и usage в `fa/eval`, но не меняет порядок fallback. Это платный probe; стандартный preflight остаётся без дополнительных вызовов моделей, чтобы не расходовать квоты на каждом часовом запуске. NVIDIA не задаёт один лимит, общий для всех моделей и API keys; выставить фактические `FA_NVIDIA_RPM`, `FA_NVIDIA_TPM`, `FA_NVIDIA_RPD` в repository variables по лимитам аккаунта. Роутер применяет указанные caps совместно на всей NVIDIA quota group.
 
-NVIDIA route начинается с `nvidia/kimi-k3.1-pro`, а `nvidia/nemotron-3-ultra-550b-a55b` остаётся отдельной резервной моделью. Выбор в ручной форме workflow сбрасывает сохранённые auth-breakers, чтобы после исправления/замены ключа провайдер сразу перепроверился; расписание не сбрасывает breakers.
+Плановое расписание не сбрасывает breakers. Выбор в ручной форме workflow сбрасывает сохранённые auth-breakers, чтобы после исправления/замены ключа провайдер сразу перепроверился.
 
 ## Первый запуск
 
@@ -80,7 +86,7 @@ NVIDIA route начинается с `nvidia/kimi-k3.1-pro`, а `nvidia/nemotron
 
 ```bash
 export GEMINI_API_KEY="..."        # не коммитить
-export XEROSHARC_API_KEY="..."     # не коммитить
+export NVIDIA_API_KEY="..."      # не коммитить
 npm run fa:preflight
 npm run fa -- --force-local --once
 ```
@@ -95,10 +101,13 @@ fa/logs/<run>/
 ├── <task>.jsonl       события OpenCode (JSONL)
 ├── <task>.err.log     stderr процесса
 ├── verify-<task>.json результат инвариантов
+├── traces.otlp.json  spans для внешней OTLP-системы
 └── summary.json       итог запуска
 ```
 
 `summary.json` — первое, что нужно открыть. В нём: задача, попытка, длительность, шаги, токены, изменённые файлы, причина остановки.
+
+Каждая строка `run.jsonl` содержит `correlationId`. События одной попытки задачи (включая `model.start`, `model.infra`, `model.fallback` и `model.done`) имеют одинаковый ID; события запуска вне попытки используют `<runId>:run`. В Actions можно искать `[corr:<id>]`, а в JSONL — фильтровать по точному полю `correlationId`.
 
 ## Типовые поломки
 

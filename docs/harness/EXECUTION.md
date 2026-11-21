@@ -5,30 +5,35 @@
 ## Среда
 
 - GitHub Actions, `ubuntu-latest`, Node.js 22, OpenCode CLI запинен по версии.
-- Один job = ровно одна задача, бюджет запуска `FA_RUN_BUDGET_MIN=90`, жёсткий потолок job — 90 мин.
-- Watchdog (`schedule: */30 * * * *`) поднимает следующий запуск, если очередь не пуста.
+- Один job = ровно одна задача, бюджет запуска `FA_RUN_BUDGET_MIN=240`, потолок GitHub Actions job — 285 мин.
+- Watchdog (`schedule: 0 * * * *`) поднимает следующий запуск, если очередь не пуста.
 - `concurrency: fa-loop` не даёт двум запускам работать одновременно.
 - Локальный запуск — тот же `scripts/fa/loop.mjs`, но только с `--force-local` и на чистом дереве.
-- Модели и порядок fallback задаются в `scripts/fa/models.mjs`; `FA_MODELS` меняет предпочтения в общей цепочке, а стандартные кандидаты дополняют fallback. Роль-предпочтения провайдера сохраняются. Явный выбор модели каждой роли доступен в `workflow_dispatch`.
-- Стандартное распределение: Gemini Flash-Lite планирует и проверяет; NVIDIA Kimi K3.1 Pro исполняет и чинит, затем идут NVIDIA coding/agent модели и Nemotron, Gemini остаётся cross-provider fallback. Порядок ролей имеет приоритет над прежним общим fallback-порядком, чтобы старый список с Gemini первым не назначал Gemini executor.
+- Модели и порядок fallback автоматических запусков задаются в `scripts/fa/models.mjs`; repository variable `FA_MODELS` не передаётся, чтобы устаревшие настройки не подменяли curated routes. Явный выбор модели каждой роли доступен в `workflow_dispatch`; локальный запуск может использовать `FA_MODELS`.
+- Кодовые роли используют NVIDIA-модели согласно явным per-role порядкам в `scripts/fa/models.mjs`; Nemotron Ultra первый для исполнения, ремонта и reviewer. Google fallback каждой роли: Gemini 4 Hydrogen → 3.8 Flash → 3.6 Flash → 2.5 Flash. Для явно помеченных `area: simple` задач, меняющих только текстовые файлы, порядок: NVIDIA Nemotron 3.5 Lightning → Gemini 3.5 Flash-Lite → Gemini 3.1 Flash-Lite. Lite-модели не могут попасть в кодовые роли.
 - Планировщик не проверяет собственный план, а финальный reviewer исключает точные модели planner и последнего автора кода; если независимой модели нет, review не подменяется самооценкой.
 - Plan-review блокирует реализацию только при blocker/major; замечания minor остаются в отчёте, но не превращаются в два безрезультатных цикла и `[!]`.
 - Заблокированная задача делает job неуспешным (красным), даже если issue о блокировке создан штатно.
-- Ручной `workflow_dispatch` формы FA дают выбор модели по planner/executor/repair/reviewer; `inherit` использует стандартный роутинг. Старые `FA_*_MODEL` repo variables намеренно не передаются в workflow; `FA_MODELS` остаётся общим fallback list.
-- В реестре и ручном workflow разрешены только Google Gemini и NVIDIA NIM. Gemini ключи ротируются по квоте; NVIDIA — основной исполнитель и repair. Явный per-role выбор проходит только через workflow_dispatch и allowlist.
+- Ручной `workflow_dispatch` формы FA дают выбор модели по planner/executor/repair/reviewer; `inherit` использует стандартный роутинг. Старые `FA_*_MODEL` repo variables намеренно не передаются; scheduled runs используют code-owned route и timeout defaults.
+- В реестре и ручном workflow разрешены только Google Gemini и NVIDIA NIM. Для Google соблюдаются RPM/TPM/RPD: стандартные модели — 5/250000/20, Flash-Lite — 15/250000/500; стандартные Google-модели используют общий quota group, Lite — отдельный. NVIDIA не публикует единый числовой лимит для всех API Catalog моделей/аккаунтов; все три repo variables `FA_NVIDIA_RPM`, `FA_NVIDIA_TPM`, `FA_NVIDIA_RPD` обязательны при заданном NVIDIA API key. Без них роутер выдаёт ошибку до вызова модели, не включая NVIDIA без лимитов.
 - До пяти ключей Gemini (`GEMINI_API_KEY`, `GEMINI_API_KEY_2` … `_5`) могут ротироваться после quota/rate-limit; значения секретов не выводятся в логи.
-- NVIDIA DeepSeek V4.1 Flash был удалён провайдером; Nemotron 3 Ultra оставлен последним NVIDIA fallback. Ответы `410`/`end of life` и async `202` (который OpenCode-compatible runner не умеет продолжать polling) запускают fallback вместо повторного расхода попытки на ту же модель.
+- Доступность NVIDIA API Catalog зависит от модели и аккаунта; все зарегистрированные NVIDIA-модели остаются кандидатами, а не исключаются статическим blacklist. Ответы `410`/`end of life` и async `202` (который OpenCode-compatible runner не умеет продолжать polling) запускают fallback вместо повторного расхода попытки на ту же модель.
 
 ## Лимиты (все в коде)
 
 | Лимит | Где | По умолчанию |
 | --- | --- | --- |
-| Время на задачу | `FA_TASK_TIMEOUT_MIN` | 25 мин |
-| Бюджет запуска | `FA_RUN_BUDGET_MIN` | 90 мин |
+| Время на задачу | `FA_TASK_TIMEOUT_MIN` | 90 мин |
+| Бюджет запуска | `FA_RUN_BUDGET_MIN` | 240 мин |
+| Время одной модели внутри фазы | `FA_MODEL_TIMEOUT_MIN` | 60 мин |
+| Лимит одной repair-фазы | `FA_REPAIR_TIMEOUT_MIN` | 30 мин |
 | Задач за запуск | — | 1 (жёстко) |
 | Попыток на задачу | `FA_MAX_ATTEMPTS` | 2 |
 | Шагов агента | `.opencode/agents/fa.md` → `steps` | 60 |
 | Токен-бюджет запуска | `FA_TOKEN_BUDGET` | 2 000 000 |
+| NVIDIA запросов в минуту | `FA_NVIDIA_RPM` | задаётся по лимиту NVIDIA API key |
+| NVIDIA токенов в минуту | `FA_NVIDIA_TPM` | задаётся по лимиту NVIDIA API key |
+| NVIDIA запросов в день | `FA_NVIDIA_RPD` | задаётся по лимиту NVIDIA API key |
 | Инфра-провалов подряд | `FA_MAX_INFRA_FAILURES` | 3 |
 | Размер диффа | `scripts/fa/config.mjs` + `scripts/fa/loop.mjs` | 25 файлов / 2500 добавленных и удалённых строк |
 

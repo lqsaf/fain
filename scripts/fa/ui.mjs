@@ -575,9 +575,26 @@ export async function runUiSmoke({
         });
         if (!element) return null;
         element.setAttribute("data-fa-smoke-control", ${JSON.stringify(marker)});
-        return { role: element.getAttribute("role"), expanded: element.getAttribute("aria-expanded") };
+        const labelledBy = (element.getAttribute("aria-labelledby") || "").split(/\\s+/).filter(Boolean);
+        return {
+          role: element.getAttribute("role"),
+          haspopup: element.getAttribute("aria-haspopup"),
+          expanded: element.getAttribute("aria-expanded"),
+          labelledBy,
+          nameParts: labelledBy.map((id) => document.getElementById(id)?.textContent?.trim() || "")
+        };
       })()`);
       if (!control) throw new Error(`custom ${name} dropdown with an accessible label was not found`);
+      if (control.role !== "combobox" || control.haspopup !== "listbox") {
+        throw new Error(`${name} trigger must expose combobox/listbox semantics`);
+      }
+      if (
+        control.labelledBy.length < 2 ||
+        control.nameParts.some((part) => !part) ||
+        !control.nameParts.some((part) => terms.some((term) => part.toLowerCase().includes(term)))
+      ) {
+        throw new Error(`${name} trigger accessible name must reference its visible label and selected value`);
+      }
 
       const focus = async () => browser.evaluate(`document.querySelector(${JSON.stringify(selector)})?.focus()`);
       await focus();
@@ -593,10 +610,22 @@ export async function runUiSmoke({
         return {
           expanded: control.getAttribute("aria-expanded"),
           visible: !list.hidden && getComputedStyle(list).display !== "none" && getComputedStyle(list).visibility !== "hidden",
-          below: listRect.top >= triggerRect.bottom - 2
+          below: listRect.top >= triggerRect.bottom - 2,
+          role: list.getAttribute("role"),
+          labelledBy: list.getAttribute("aria-labelledby"),
+          labelExists: (list.getAttribute("aria-labelledby") || "")
+            .split(/\s+/)
+            .filter(Boolean)
+            .some((id) => {
+              const label = document.getElementById(id)?.textContent?.toLowerCase() || "";
+              return terms.some((term) => label.includes(term));
+            })
         };
       })()`);
       if (!opened?.visible || opened.expanded !== "true") throw new Error(`${name} dropdown did not open`);
+      if (opened.role !== "listbox" || !opened.labelledBy || !opened.labelExists) {
+        throw new Error(`${name} popup must expose an accessibly labelled listbox`);
+      }
       if (!opened.below) throw new Error(`${name} dropdown did not expand inline below its trigger`);
 
       const savedBeforeEscape = await browser.evaluate(`localStorage.getItem(${JSON.stringify(storageKey)})`);
@@ -616,11 +645,13 @@ export async function runUiSmoke({
       await browser.press("Escape");
       const escaped = await browser.evaluate(`({
         expanded: document.querySelector(${JSON.stringify(selector)})?.getAttribute("aria-expanded"),
+        activeDescendant: document.querySelector(${JSON.stringify(selector)})?.getAttribute("aria-activedescendant"),
         value: localStorage.getItem(${JSON.stringify(storageKey)})
       })`);
       if (escaped.expanded === "true" || escaped.value !== savedBeforeEscape) {
         throw new Error(`${name} dropdown Escape did not close without changing the value`);
       }
+      if (escaped.activeDescendant) throw new Error(`${name} dropdown kept aria-activedescendant after close`);
 
       await focus();
       if (interaction === "pointer") await browser.click(selector);
@@ -646,11 +677,20 @@ export async function runUiSmoke({
           selectedCount: options.filter((option) => option.getAttribute("aria-selected") === "true").length,
           target,
           activeIndex: activeIndex(),
-          listVisible: !list.hidden && getComputedStyle(list).display !== "none"
+          listVisible: !list.hidden && getComputedStyle(list).display !== "none",
+          focusOnControl: document.activeElement === control,
+          activeDescendantIsOption: Boolean(
+            control.getAttribute("aria-activedescendant") &&
+              options.some((option) => option.id === control.getAttribute("aria-activedescendant"))
+          ),
+          allOptionsNamed: options.every((option) => option.textContent?.trim() && option.id)
         };
       })()`);
       if (!navigation?.listVisible || navigation.optionCount < 2 || navigation.selectedCount !== 1 || navigation.target < 0) {
         throw new Error(`${name} dropdown has no accessible listbox options for ${targetValue}`);
+      }
+      if (!navigation.focusOnControl || !navigation.activeDescendantIsOption || !navigation.allOptionsNamed) {
+        throw new Error(`${name} combobox must retain focus and identify its active, named option`);
       }
 
       if (interaction === "pointer") {
@@ -781,6 +821,25 @@ export async function runUiSmoke({
 
     await check("settings.accordion", async () => {
       await load("settings.html");
+      await browser.evaluate("localStorage.setItem('fain_settings_sections_v1', '{invalid')");
+      await browser.goto("settings.html");
+      const recovered = await browser.evaluate(`({
+        sections: [...document.querySelectorAll('#settings-content button[aria-expanded][aria-controls]')]
+          .map((button) => button.getAttribute("aria-expanded") === "true")
+      })`);
+      if (recovered.sections.length !== 3 || !recovered.sections[0] || recovered.sections.slice(1).some(Boolean)) {
+        throw new Error("invalid accordion storage did not recover to [interface]");
+      }
+
+      await browser.evaluate("localStorage.setItem('fain_settings_sections_v1', '[\"interface\",\"unknown\"]')");
+      await browser.goto("settings.html");
+      const filtered = await browser.evaluate(`[
+        ...document.querySelectorAll('#settings-content button[aria-expanded][aria-controls]')
+      ].map((button) => button.getAttribute("aria-expanded") === "true")`);
+      if (filtered.length !== 3 || !filtered[0] || filtered.slice(1).some(Boolean)) {
+        throw new Error("accordion storage did not discard unknown section IDs");
+      }
+
       const selector = await browser.evaluate(`(() => {
         const button = document.querySelector('#settings-content button[aria-expanded="true"][aria-controls]');
         if (!button) return "";

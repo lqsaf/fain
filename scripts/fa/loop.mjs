@@ -4,7 +4,8 @@
 // независимый goldfish review → коммит → PR. Агент не коммитит и не пушит.
 
 import { spawnSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   AGENT,
@@ -63,6 +64,8 @@ import {
   setPhase
 } from "./state.mjs";
 import { ModelSession } from "./router.mjs";
+import { createLogRecord } from "./logging.mjs";
+import { flushTelemetry, recordTrace } from "./telemetry.mjs";
 import { runPhase } from "./runner.mjs";
 import {
   PROMPT_VERSIONS,
@@ -83,6 +86,7 @@ let cli = { noPush: false };
 const state = {
   startedAt: Date.now(),
   runId: "",
+  correlationId: "",
   taskId: "",
   taskStartedAt: 0,
   tasksDone: 0,
@@ -141,19 +145,46 @@ function parseArgs(argv) {
 }
 
 function log(event, data = {}) {
-  const record = {
+  const detail = `${event} ${data.model || ""} ${data.phase || ""} ${data.category || ""} ${data.status || ""} ${data.message || ""} ${data.reason || ""}`.toLowerCase();
+  const isFailure =
+    /(?:error|failed|fatal|fallback|blocked|budget_exhausted|retry|infra|exhausted)/.test(event) ||
+    /^(?:error|failed|infra|exhausted|blocked)$/.test(String(data.status || ""));
+  const layer = /(?:verify|ui|eval)\./.test(event)
+    ? "V"
+    : /(?:context|memory)\./.test(event)
+      ? "C"
+      : /(?:tool|mcp)\./.test(event)
+        ? "T"
+        : /(?:policy|protected)\./.test(event)
+          ? "G"
+          : /(?:model|quota|auth|rate.limit)/.test(detail)
+            ? "O"
+            : /timeout|budget|spawn/.test(detail)
+              ? "E"
+              : /(?:task|queue|branch|run)\./.test(event)
+                ? "L"
+                : "E";
+  const taggedData = isFailure ? { ...data, layer } : data;
+  const taskId = taggedData.task || state.taskId;
+  const correlationId = data.correlationId ||
+    (taskId && taskId === state.taskId && state.correlationId
+      ? state.correlationId
+      : `${state.runId || "fa"}:run`);
+  const record = createLogRecord({
     at: nowIso(),
-    runId: state.runId || "",
+    runId: state.runId,
+    taskId,
+    correlationId,
     event,
-    ...(data.task || state.taskId ? { task: data.task || state.taskId } : {}),
-    ...data
-  };
+    data: taggedData
+  });
+  recordTrace(record);
   if (run) appendFileSync(run.events, `${JSON.stringify(record)}\n`);
   const task = data.task ? `[${data.task}] ` : "";
   const phase = data.phase ? `${data.phase}: ` : "";
   const model = data.model ? `${data.model} ` : "";
   const message = data.message ? ` ${data.message}` : "";
-  console.log(`${record.at} ${event} ${task}${phase}${model}${message}`.trimEnd());
+  console.log(`${record.at} ${event} [corr:${correlationId}] ${task}${phase}${model}${message}`.trimEnd());
 }
 
 function sanitize(value) {
@@ -182,6 +213,25 @@ function remainingExecutionMs() {
 
 function phaseTimeoutForTask(requestedMs) {
   return Math.max(0, Math.min(requestedMs, remainingExecutionMs()));
+}
+
+function isSimpleNonCodeTask(task) {
+  const textFile = /\.(?:md|mdx|txt|rst|adoc)$/i;
+  return task?.area === "simple" &&
+    Array.isArray(task.files) &&
+    task.files.length > 0 &&
+    task.files.every(
+      (file) =>
+        textFile.test(file) &&
+        !file.includes("*") &&
+        !file.includes("?") &&
+        !file.includes("[") &&
+        !file.includes("]")
+    );
+}
+
+function roleForTask(task, role) {
+  return isSimpleNonCodeTask(task) ? "simple" : role;
 }
 
 function ghAvailable() {
@@ -218,6 +268,29 @@ function prState() {
 
 function createIssue(title, body) {
   if (!ghAvailable() || !process.env.GH_TOKEN) return;
+
+  const listed = gh(["issue", "list", "--state", "open", "--search", `in:title "${title}"`, "--json", "number,title", "--limit", "100"]);
+  if (!listed.ok) {
+    log("issue.lookup.error", { message: listed.stderr.slice(0, 300) });
+    return;
+  }
+
+  let existing;
+  try {
+    const issues = JSON.parse(listed.stdout || "[]");
+    existing = issues.find((issue) => issue.title === title);
+  } catch (error) {
+    log("issue.lookup.error", { message: `invalid GitHub issue response: ${error.message}` });
+    return;
+  }
+
+  if (existing) {
+    const updated = gh(["issue", "edit", String(existing.number), "--body-file", "-"], body);
+    if (updated.ok) log("issue.update", { message: `#${existing.number} refreshed: ${title}` });
+    else log("issue.update.error", { message: updated.stderr.slice(0, 300) });
+    return;
+  }
+
   const result = gh(["issue", "create", "--title", title, "--body-file", "-"], body);
   if (result.ok) log("issue.create", { message: result.stdout.split("\n").pop() || title });
   else log("issue.error", { message: result.stderr.slice(0, 300) });
@@ -484,6 +557,7 @@ function rememberPhase(phase, result, extra = {}) {
     phase,
     model: result?.model || "",
     tokens: result?.metrics?.tokenTotal || 0,
+    cost: Number(result?.metrics?.cost) || 0,
     budgetTokens: result?.metrics?.budgetTokens ?? result?.metrics?.tokenTotal ?? 0,
     durationMs: result?.durationMs || 0,
     status: result?.kind || "ok",
@@ -537,7 +611,7 @@ async function phasePlan({ task, context, memory, attempt }) {
   log("phase.start", { phase: "plan", message: `attempt ${attempt}` });
   const result = await runPhase({
     session: state.session,
-    role: "planner",
+    role: roleForTask(task, "planner"),
     agent: PLANNER_AGENT,
     prompt,
     title: `FA plan ${task.id} attempt ${attempt}`,
@@ -567,7 +641,7 @@ async function phaseSpecReview({ task, context, plan, attempt }) {
   log("phase.start", { phase: "spec-review" });
   const result = await runPhase({
     session: state.session,
-    role: "reviewer",
+    role: roleForTask(task, "reviewer"),
     agent: REVIEWER_AGENT,
     prompt,
     title: `FA spec review ${task.id} attempt ${attempt}`,
@@ -576,7 +650,6 @@ async function phaseSpecReview({ task, context, plan, attempt }) {
     fileBase: `${task.id}-attempt${attempt}-spec`,
     taskId: task.id,
     markers: [],
-    avoidProvider: providerOf(plannerModel),
     excludeModels: plannerModel ? [plannerModel] : [],
     log
   });
@@ -598,7 +671,7 @@ async function phasePlanRepair({ task, context, plan, findings, attempt }) {
   log("phase.start", { phase: "plan-repair" });
   const result = await runPhase({
     session: state.session,
-    role: "planner",
+    role: roleForTask(task, "planner"),
     agent: PLANNER_AGENT,
     prompt,
     title: `FA plan repair ${task.id}`,
@@ -619,7 +692,7 @@ async function phaseImplement({ task, context, plan, memory, attempt, previousFa
   log("phase.start", { phase: "implement", message: `attempt ${attempt}` });
   const result = await runPhase({
     session: state.session,
-    role: "executor",
+    role: roleForTask(task, "executor"),
     agent: AGENT,
     prompt,
     title: `FA ${task.id} attempt ${attempt}`,
@@ -655,11 +728,11 @@ async function phaseRepair({ task, context, plan, verify, ui, attempt, round }) 
   log("phase.start", { phase: "repair", message: `round ${round}` });
   const result = await runPhase({
     session: state.session,
-    role: "repair",
+    role: roleForTask(task, "repair"),
     agent: AGENT,
     prompt,
     title: `FA repair ${task.id} round ${round}`,
-    timeoutMs: phaseTimeoutForTask(LIMITS.taskTimeoutMs),
+    timeoutMs: phaseTimeoutForTask(Math.min(LIMITS.taskTimeoutMs, LIMITS.repairTimeoutMs)),
     runDir: run.dir,
     fileBase: `${task.id}-repair${round}`,
     taskId: task.id,
@@ -688,13 +761,10 @@ async function phaseReview({ task, context, plan, verify, ui, attempt, round }) 
     flags: []
   });
   log("phase.start", { phase: "review", message: `round ${round}` });
-  const plannerModel = [...state.phases]
-    .reverse()
-    .find((phase) => phase.phase === "plan" || phase.phase === "plan-repair")?.model;
   const excludeModels = [state.executorModel].filter(Boolean);
   const result = await runPhase({
     session: state.session,
-    role: "reviewer",
+    role: roleForTask(task, "reviewer"),
     agent: REVIEWER_AGENT,
     prompt,
     title: `FA review ${task.id} round ${round}`,
@@ -703,7 +773,6 @@ async function phaseReview({ task, context, plan, verify, ui, attempt, round }) 
     fileBase: `${task.id}-review${round}`,
     taskId: task.id,
     markers: [],
-    avoidProvider: state.executorProvider,
     excludeModels,
     log
   });
@@ -742,12 +811,23 @@ function blockTask(task, reason, attempts) {
   if (!cli.noPush) pushWithRetry();
   createIssue(
     `FA blocked: ${task.id}`,
-    `Задача ${task.id} заблокирована.\n\nПричина: ${sanitize(reason)}\n\nПопыток: ${attempts}\n\nPR: ${BRANCH} -> ${BASE_BRANCH}`
+    `Задача ${task.id} заблокирована.\n\nETCLOVG layer: ${failureLayer(reason)}\nПричина: ${sanitize(reason)}\n\nПопыток: ${attempts}\n\nPR: ${BRANCH} -> ${BASE_BRANCH}`
   );
   state.tasksBlocked += 1;
   recordTask(task, { attempts, result: "blocked", reason });
   keyMemory(task, "failure", reason, { tags: ["blocked"] });
   log("task.blocked", { task: task.id, message: String(reason).slice(0, 500) });
+}
+
+function failureLayer(reason) {
+  const detail = String(reason || "").toLowerCase();
+  if (/verify|assert|test|review verdict/.test(detail)) return "V";
+  if (/context|truncat|token limit/.test(detail)) return "C";
+  if (/tool|mcp|permission denied/.test(detail)) return "T";
+  if (/policy|protected|secret/.test(detail)) return "G";
+  if (/model|quota|rate limit|429|401|provider/.test(detail)) return "O";
+  if (/timeout|budget|spawn|process/.test(detail)) return "E";
+  return "L";
 }
 
 function keyMemory(task, kind, text, extra = {}) {
@@ -808,6 +888,7 @@ async function evaluateWork(task, { includeUi = true } = {}) {
 
 async function attemptTask(task, attempt) {
   const started = Date.now();
+  state.correlationId = randomUUID();
   writeQueue(markClaimed(readQueueText(), task.id, { attempts: attempt }));
   log("task.start", { task: task.id, message: `attempt ${attempt}/${LIMITS.maxAttempts}` });
   persistState("claim", { attempt });
@@ -1053,6 +1134,7 @@ async function attemptTask(task, attempt) {
 
 async function runTask(task, { resumePhase = "" } = {}) {
   state.taskStartedAt = Date.now();
+  state.correlationId = randomUUID();
   const attemptsLimit = LIMITS.maxAttempts;
   let lastReason = "attempt limit reached";
 
@@ -1329,7 +1411,7 @@ async function main() {
   const stop = killSwitch();
   if (stop) {
     state.stopReason = stop;
-    finish();
+    await finish();
     return;
   }
 
@@ -1339,7 +1421,7 @@ async function main() {
     if (!task) {
       console.log("no runnable tasks");
       state.stopReason = "no tasks";
-      finish();
+      await finish();
       return;
     }
     const context = buildContext({ task, maxChars: LIMITS.contextChars });
@@ -1348,7 +1430,7 @@ async function main() {
     console.log(`context: ${context.chars} chars, files: ${context.files.join(", ")}`);
     console.log(buildPlanPrompt({ task, context: context.text }));
     state.stopReason = "dry run";
-    finish();
+    await finish();
     return;
   }
 
@@ -1356,7 +1438,7 @@ async function main() {
     state.failed = true;
     state.stopReason = "no model with provider key";
     log("models.missing", { message: "set provider keys or FA_MODELS" });
-    finish();
+    await finish();
     return;
   }
 
@@ -1387,7 +1469,7 @@ async function main() {
     state.stopReason = "branch setup failed";
     log("branch.error", { message: error.message });
     createIssue("FA infrastructure failure", `Не удалось подготовить ветку ${BRANCH}.\n\n${error.message}`);
-    finish();
+    await finish();
     return;
   }
 
@@ -1417,7 +1499,7 @@ async function main() {
     if (!task) {
       clearActive();
       state.stopReason = `resume task ${resumed.id} is missing`;
-      finish();
+      await finish();
       return;
     }
     if (task.status === "claimed") {
@@ -1426,38 +1508,69 @@ async function main() {
     }
     const outcome = await runTask(task, { resumePhase: resumed.code ? "resume" : "" });
     state.stopReason = outcome.result === "budget" ? state.stopReason : `task ${task.id} ${outcome.result}`;
-    finish();
+    await finish();
     return;
   }
 
   if (!task) {
     state.stopReason = options.task ? `task ${options.task} is not runnable` : "no tasks";
     if (options.task) state.failed = true;
-    finish();
+    await finish();
     return;
   }
 
   if (task.status !== "todo") {
     state.stopReason = `task ${task.id} is ${task.status}`;
     state.failed = true;
-    finish();
+    await finish();
     return;
   }
 
   if (budgetExhausted(state.startedAt)) {
     state.stopReason = "run budget exhausted";
-    finish();
+    await finish();
     return;
   }
 
   state.taskId = task.id;
   const outcome = await runTask(task);
   state.stopReason = outcome.result === "budget" ? state.stopReason : `task ${task.id} ${outcome.result}`;
-  finish();
+  await finish();
 }
 
-function finish() {
+async function finish() {
   const durationMs = Date.now() - state.startedAt;
+  const costTotal = state.phases.reduce((sum, phase) => sum + (Number(phase.cost) || 0), 0);
+  const priorCosts = [];
+  if (existsSync(PATHS.logs)) {
+    const dirs = readdirSync(PATHS.logs, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && entry.name !== run?.dir.split("/").pop())
+      .map((entry) => entry.name)
+      .sort((left, right) => right.localeCompare(left))
+      .slice(0, 30);
+    for (const dir of dirs) {
+      const file = join(PATHS.logs, dir, "summary.json");
+      if (!existsSync(file)) continue;
+      try {
+        const previous = JSON.parse(readFileSync(file, "utf8"));
+        if (Number.isFinite(previous.cost?.total) && previous.cost.total > 0) priorCosts.push(previous.cost.total);
+      } catch (error) {
+        log("cost.history.read_error", { message: `${dir}: ${error.message}` });
+      }
+    }
+  }
+  priorCosts.sort((left, right) => left - right);
+  const middle = Math.floor(priorCosts.length / 2);
+  const medianCost = priorCosts.length
+    ? priorCosts.length % 2
+      ? priorCosts[middle]
+      : (priorCosts[middle - 1] + priorCosts[middle]) / 2
+    : 0;
+  const costAnomaly = medianCost > 0 && costTotal > medianCost * 2;
+  if (costAnomaly) {
+    console.warn(`cost anomaly: run cost ${costTotal.toFixed(6)} USD is over 2x median ${medianCost.toFixed(6)} USD`);
+    log("cost.anomaly", { currentCost: costTotal, medianCost, thresholdMultiplier: 2 });
+  }
   const summary = {
     runId: run ? run.dir.split("/").pop() : makeRunId(),
     ok: isSuccessfulRun(state),
@@ -1474,6 +1587,7 @@ function finish() {
     tasksDone: state.tasksDone,
     tasksBlocked: state.tasksBlocked,
     tokens: { total: state.tokenTotal, budgeted: state.budgetTokenTotal, limit: LIMITS.tokenBudget },
+    cost: { total: Number(costTotal.toFixed(6)), median: Number(medianCost.toFixed(6)), anomaly: costAnomaly },
     phases: state.phases,
     verify: state.verify ? { ok: state.verify.ok, checks: state.verify.checkCount } : null,
     ui: state.ui ? { ok: state.ui.ok, skipped: state.ui.skipped, checks: state.ui.checks?.length || 0 } : null,
@@ -1497,10 +1611,11 @@ function finish() {
     message: `${summary.ok ? "ok" : "failed"} (${summary.stopReason}), done=${summary.tasksDone}, blocked=${summary.tasksBlocked}, tokens=${state.tokenTotal}`
   });
 
+  await flushTelemetry({ runDir: run?.dir || "" });
   process.exitCode = isSuccessfulRun(state) ? 0 : 1;
 }
 
-main().catch((error) => {
+main().catch(async (error) => {
   state.failed = true;
   state.stopReason = "fatal error";
   try {
@@ -1508,5 +1623,5 @@ main().catch((error) => {
   } catch {
     console.error(error);
   }
-  finish();
+  await finish();
 });

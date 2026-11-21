@@ -10,3 +10,5 @@
 /.githooks/ @lqsaf
 /docs/harness/ @lqsaf
 /docs/decisions/ @lqsaf
+/worker.js @lqsaf
+/wrangler.toml @lqsaf

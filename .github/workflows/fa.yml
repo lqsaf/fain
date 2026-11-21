@@ -2,8 +2,8 @@ name: FA
 
 "on":
   schedule:
-    # Watchdog: каждые 30 минут запускает ровно одну задачу, если очередь не пуста.
-    - cron: "*/30 * * * *"
+    # Watchdog: hourly cadence gives long-running UI tasks time to finish.
+    - cron: "0 * * * *"
   workflow_dispatch:
     inputs:
       mode:
@@ -19,56 +19,69 @@ name: FA
         type: choice
         options:
           - inherit
-          - google/gemini-3.1-flash-lite
-          - nvidia/kimi-k3.1-pro
-          - nvidia/step-5-preview
-          - nvidia/mistral-large-4-1t-a52b
+          - google/gemini-4-hydrogen
+          - google/gemini-3.8-flash
+          - google/gemini-3.6-flash
+          - google/gemini-2.5-flash
+          - nvidia/nemotron-3-ultra-550b-a55b
+          - nvidia/nemotron-3.5-super-vl-120b-a12b
           - nvidia/glm-5.3-flash
           - nvidia/minimax-m3.1-flash
           - nvidia/laguna-xs-2.1
-          - nvidia/nemotron-3-ultra-550b-a55b
         default: inherit
       executor_model:
         description: "Исполнитель: модель для реализации"
         type: choice
         options:
           - inherit
-          - google/gemini-3.1-flash-lite
-          - nvidia/kimi-k3.1-pro
-          - nvidia/step-5-preview
-          - nvidia/mistral-large-4-1t-a52b
+          - google/gemini-4-hydrogen
+          - google/gemini-3.8-flash
+          - google/gemini-3.6-flash
+          - google/gemini-2.5-flash
+          - nvidia/nemotron-3-ultra-550b-a55b
+          - nvidia/nemotron-3.5-super-vl-120b-a12b
           - nvidia/glm-5.3-flash
           - nvidia/minimax-m3.1-flash
           - nvidia/laguna-xs-2.1
-          - nvidia/nemotron-3-ultra-550b-a55b
         default: inherit
       repair_model:
         description: "Починка: модель для исправлений"
         type: choice
         options:
           - inherit
-          - google/gemini-3.1-flash-lite
-          - nvidia/kimi-k3.1-pro
-          - nvidia/step-5-preview
-          - nvidia/mistral-large-4-1t-a52b
+          - google/gemini-4-hydrogen
+          - google/gemini-3.8-flash
+          - google/gemini-3.6-flash
+          - google/gemini-2.5-flash
+          - nvidia/nemotron-3-ultra-550b-a55b
+          - nvidia/nemotron-3.5-super-vl-120b-a12b
           - nvidia/glm-5.3-flash
           - nvidia/minimax-m3.1-flash
           - nvidia/laguna-xs-2.1
-          - nvidia/nemotron-3-ultra-550b-a55b
         default: inherit
       reviewer_model:
         description: "Ревьюер: независимая проверка"
         type: choice
         options:
           - inherit
-          - google/gemini-3.1-flash-lite
-          - nvidia/kimi-k3.1-pro
-          - nvidia/step-5-preview
-          - nvidia/mistral-large-4-1t-a52b
+          - google/gemini-4-hydrogen
+          - google/gemini-3.8-flash
+          - google/gemini-3.6-flash
+          - google/gemini-2.5-flash
+          - nvidia/nemotron-3-ultra-550b-a55b
+          - nvidia/nemotron-3.5-super-vl-120b-a12b
           - nvidia/glm-5.3-flash
           - nvidia/minimax-m3.1-flash
           - nvidia/laguna-xs-2.1
-          - nvidia/nemotron-3-ultra-550b-a55b
+        default: inherit
+      simple_model:
+        description: "Простые не-кодовые задачи: предпочитаемая модель"
+        type: choice
+        options:
+          - inherit
+          - nvidia/nemotron-3.5-lightning-30b-a3b
+          - google/gemini-3.5-flash-lite
+          - google/gemini-3.1-flash-lite
         default: inherit
 
 permissions:
@@ -85,7 +98,7 @@ jobs:
   fa:
     if: ${{ github.event.inputs.mode != 'stop' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 285
 
     steps:
       - name: Checkout
@@ -169,22 +182,26 @@ jobs:
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY || secrets.NVIDIA_NIM_API_KEY }}
           NVIDIA_NIM_API_KEY: ${{ secrets.NVIDIA_NIM_API_KEY }}
-          # Единственное место выбора моделей — scripts/fa/models.mjs.
-          # FA_MODELS (repo variable) переопределяет цепочку в формате provider/model#variant.
-          FA_MODELS: ${{ vars.FA_MODELS }}
+          # Scheduled runs use code-owned route and timeout defaults. Only
+          # explicit per-role selections from workflow_dispatch override routing.
           # `inherit` means use code defaults. Old repo role variables must not
           # silently pin the executor to Gemini after a workflow update.
           FA_PLANNER_MODEL: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.planner_model != 'inherit' && github.event.inputs.planner_model || '' }}
           FA_EXECUTOR_MODEL: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.executor_model != 'inherit' && github.event.inputs.executor_model || '' }}
           FA_REPAIR_MODEL: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.repair_model != 'inherit' && github.event.inputs.repair_model || '' }}
           FA_REVIEWER_MODEL: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.reviewer_model != 'inherit' && github.event.inputs.reviewer_model || '' }}
+          FA_SIMPLE_MODEL: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.simple_model != 'inherit' && github.event.inputs.simple_model || '' }}
           FA_RESET_AUTH_BREAKERS: ${{ github.event_name == 'workflow_dispatch' && 'true' || 'false' }}
           FA_ENABLED: ${{ vars.FA_ENABLED }}
-          FA_TASK_TIMEOUT_MIN: ${{ vars.FA_TASK_TIMEOUT_MIN }}
-          FA_RUN_BUDGET_MIN: ${{ vars.FA_RUN_BUDGET_MIN }}
           FA_MAX_ATTEMPTS: ${{ vars.FA_MAX_ATTEMPTS }}
           FA_TOKEN_BUDGET: ${{ vars.FA_TOKEN_BUDGET }}
           FA_MAX_INFRA_FAILURES: ${{ vars.FA_MAX_INFRA_FAILURES }}
+          FA_NVIDIA_RPM: ${{ vars.FA_NVIDIA_RPM }}
+          FA_NVIDIA_TPM: ${{ vars.FA_NVIDIA_TPM }}
+          FA_NVIDIA_RPD: ${{ vars.FA_NVIDIA_RPD }}
+          OTEL_EXPORTER_OTLP_ENDPOINT: ${{ vars.OTEL_EXPORTER_OTLP_ENDPOINT }}
+          OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ${{ vars.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT }}
+          OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
         run: |
           set -euo pipefail
           git config user.name "fain-fa[bot]"

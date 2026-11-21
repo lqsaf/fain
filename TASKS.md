@@ -62,7 +62,7 @@ FA task queue
   `node scripts/verify.mjs` проходит.
 - done: 2026-11-18T19:12:21.964Z
 
-## [ ] T04 · Настройки 2.0: аккордеон и inline-дропдауны
+## [ ] T04 · Настройки 2.0: аккордеон
 - area: frontend
 - priority: high
 - files: settings.html, js/settings.js, js/ui.js, js/data.js, css/styles.css
@@ -73,14 +73,64 @@ FA task queue
 - acceptance: |
   Секции «Интерфейс», «Язык», «Прочее» — аккордеон: клик и Enter/Space по заголовку переключают содержимое вниз в потоке страницы; анимация уважает `prefers-reduced-motion`.
   Заголовок — кнопка с уникальными `aria-controls`/`aria-expanded`. Закрытая панель имеет `hidden` (или эквивалент, исключающий её содержимое из tab-порядка и accessibility tree).
-  По умолчанию открыта только «Интерфейс». Состояние хранится в `STORAGE_KEYS.SETTINGS_SECTIONS = "fain_settings_sections_v1"` как JSON-массив известных ID (`interface`, `language`, `other`); повреждённый JSON/неизвестные ID игнорируются, без миграции старых ключей. Ошибки localStorage обрабатываются безопасно.
-  Выпадающие настройки сделаны кастомным компонентом, нативных `<select>` на странице нет. Список является inline-панелью под триггером: он входит в поток и раздвигает страницу, не использует portal, overlay или popup ОС.
-  Триггер доступно назван и показывает выбранное значение; listbox содержит ровно один отмеченный option. Выбор темы/ASCII/языка применяется сразу и переживает reload через существующие `STORAGE_KEYS`; новые ключи для этих значений не добавлять.
-  Клавиатура: Enter/Space и ArrowUp/ArrowDown открывают список; стрелки перемещают активный option; Home/End переходят к краям; Enter выбирает; Escape закрывает без изменения; клик вне закрывает. Фокус виден в терминальном стиле.
-  Проверки мышью, клавиатурой и перезагрузкой выполняются в `npm run verify:ui`: три accordion-панели, закрытые панели не фокусируются, custom dropdown открывается вниз, сохраняет выбор, закрывается по Escape/клику вне; нативных select нет. При 390px нет горизонтального переполнения.
+  `loadAccordionState()` всегда возвращает JSON-массив известных ID (`interface`, `language`, `other`); при отсутствующем/битом значении или ошибке чтения localStorage возвращает ровно `["interface"]`. Неизвестные ID отбрасываются, без миграции старых ключей. Состояние хранится в `STORAGE_KEYS.SETTINGS_SECTIONS = "fain_settings_sections_v1"`; ошибки localStorage при чтении/записи не ломают страницу.
+  Проверки мышью, клавиатурой и перезагрузкой выполняются в `npm run verify:ui`: три accordion-панели, `loadAccordionState()` default и отсутствие фокусируемых элементов в закрытых панелях. При 390px нет горизонтального переполнения.
   Состав этой задачи ограничен темой, ASCII-волнами, языком и CSS-панелью. Масштаб — T05; выбор шрифта и редактор цветов — T20. `js/ui.js` менять только если доказана необходимость для применения настроек или регресса T03.
   T03 не регрессирует: нет вспышки темы после reload, top-panel прозрачна, inline-скрипт в `<head>` обеих страниц сохранён.
   `npm run verify` и `npm run verify:ui` проходят.
+
+## [ ] T24 · Настройки 2.0: inline combobox
+- area: frontend
+- priority: high
+- files: settings.html, js/settings.js, js/data.js, css/styles.css
+- context: docs/CONVENTIONS.md
+- verify: npm run verify:ui
+- review: optional
+- depends_on: T04
+- acceptance: |
+  Кастомные настройки темы, ASCII-волн и языка используют inline-панели под триггерами; список входит в поток страницы, раздвигает контент и не использует portal, overlay или popup ОС. Нативных `<select>` на странице нет.
+  Каждый trigger имеет `role="combobox"`, `aria-haspopup="listbox"`, уникальные `aria-controls` и `aria-expanded`; popup имеет `role="listbox"`, options — `role="option"`, ровно одна опция выбрана через `aria-selected="true"`. DOM-focus остаётся на combobox.
+  Trigger получает доступное имя через `aria-labelledby`, объединяющий ID видимого локализованного label и ID текста текущего значения; listbox ссылается на тот же label. Placeholder и title не используются как единственное accessible name.
+  Используются локализованные `settings.themeLabel`, `settings.asciiLabel`, `settings.langLabel` и имеющиеся названия секций; новые видимые строки добавляются синхронно в ru/en/zh. Выбор применяется сразу и сохраняется существующими `STORAGE_KEYS`, без новых ключей темы/ASCII/языка.
+  `npm run verify` и `npm run verify:ui` проверяют inline-положение, отсутствие native select, combobox/listbox/option semantics, accessible name, сохранённый выбор и отсутствие горизонтального переполнения при 390px.
+
+## [ ] T25 · Настройки 2.0: клавиатурная навигация
+- area: frontend
+- priority: high
+- files: js/settings.js, css/styles.css
+- context: docs/CONVENTIONS.md
+- verify: npm run verify:ui
+- review: optional
+- depends_on: T24
+- acceptance: |
+  Enter, Space, ArrowDown и ArrowUp на закрытом combobox открывают список с текущим значением активным. Открытый combobox обрабатывает ArrowDown/ArrowUp, Home/End, Enter и Escape.
+  `aria-activedescendant` указывает на существующую активную option при открытом списке; Escape закрывает без изменения выбранного значения и удаляет active descendant. Tab следует обычному tab-порядку, фокус виден в терминальном стиле.
+  `npm run verify:ui` покрывает открытие, перемещение, выбор и Escape с клавиатуры.
+
+## [ ] T26 · Настройки 2.0: доступность и жизненный цикл
+- area: frontend
+- priority: high
+- files: js/settings.js, settings.html, css/styles.css
+- context: docs/CONVENTIONS.md
+- verify: npm run verify:ui
+- review: optional
+- depends_on: T24, T25
+- acceptance: |
+  Закрытие по клику вне работает без потери фокуса и не перехватывает Tab. Закрытые панели исключены из tab-порядка и accessibility tree.
+  Глобальные `pointerdown`/`keydown` обработчики связаны с текущим render через `AbortController` либо сохранённые handler refs; перед повторным render старые обработчики снимаются, listeners не накапливаются.
+  `npm run verify:ui` проверяет доступность accordion/combobox, состояния `aria-expanded`/`aria-selected`/`aria-activedescendant`, закрытие по клику вне и отсутствие утечек listeners.
+
+## [ ] T27 · Настройки 2.0: изоляция CSS-редактора
+- area: frontend
+- priority: normal
+- files: css/styles.css, settings.html, js/settings.js
+- context: docs/CONVENTIONS.md
+- verify: npm run verify:ui
+- review: optional
+- depends_on: T04, T24, T25, T26
+- acceptance: |
+  Сохранить правила textarea `.custom-css-area` независимо от trigger/popup-стилей; не использовать общий selector `.custom-css-area, select` или аналогичный, который непреднамеренно меняет textarea.
+  Проверить отображение и доступность редактора CSS вместе с accordion и inline combobox в `npm run verify:ui`.
 
 ## [ ] T05 · Масштаб интерфейса
 - area: frontend
@@ -89,7 +139,7 @@ FA task queue
 - context: docs/CONVENTIONS.md
 - verify: node scripts/verify.mjs
 - review: optional
-- depends_on: T04
+- depends_on: T04, T24, T25
 - acceptance: |
   Добавить в секцию «Интерфейс» из T04 настройку «Масштаб интерфейса»: 90%, 100%, 110%, 120%.
   `STORAGE_KEYS.SCALE = "fain_scale_v1"`.
@@ -296,7 +346,7 @@ FA task queue
 - context: docs/CONVENTIONS.md
 - verify: npm run verify:ui
 - review: optional
-- depends_on: T03, T04
+- depends_on: T03, T04, T24, T25, T26, T27
 - acceptance: |
   Добавить в секцию «Интерфейс» выбора шрифта и редактор четырёх CSS-переменных: фон, основной текст, акцент и граница. Не менять существующие четыре именованных пресета тем и их значения.
   Шрифты: JetBrains Mono, Fira Code, системный monospace; загружать новые шрифты или добавлять CDN/зависимости нельзя.

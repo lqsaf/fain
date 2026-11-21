@@ -5,7 +5,7 @@
 import { spawn } from "node:child_process";
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { OPENCODE_BIN, ROOT } from "./config.mjs";
+import { LIMITS, OPENCODE_BIN, ROOT } from "./config.mjs";
 import { classifyFailure, estimateTokens } from "./models.mjs";
 import { estimatePhaseTokens } from "./router.mjs";
 import { analyzeFile, parseJsonlText } from "./metrics.mjs";
@@ -136,6 +136,52 @@ function detectBlocked(text, reason) {
   return "";
 }
 
+function timestamp(value, fallback = new Date().toISOString()) {
+  const parsed = typeof value === "number" ? value : Date.parse(String(value || ""));
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : fallback;
+}
+
+function recordToolSpans(stdoutFile, { taskId, role, model, log }) {
+  const { events } = parseJsonlText(readSafe(stdoutFile));
+  const opened = new Set();
+  for (const [index, event] of events.entries()) {
+    const part = event.part || {};
+    const tool = String(event.tool || part.tool || "");
+    if (!tool) continue;
+
+    const state = part.state || event.state || {};
+    const timing = state.time || part.time || event.time || {};
+    const toolCallId = String(event.callID || part.callID || event.id || `${taskId}-${role}-${index}`);
+    const startAt = timestamp(timing.start || event.startedAt || event.timestamp);
+    const endValue = timing.end || event.endedAt || event.timestamp;
+    const status = String(state.status || "").toLowerCase();
+    const base = {
+      task: taskId,
+      phase: role,
+      model,
+      tool,
+      toolCallId,
+      sandbox: "opencode-policy"
+    };
+
+    if (!opened.has(toolCallId)) {
+      log("tool.start", { ...base, at: startAt });
+      opened.add(toolCallId);
+    }
+
+    if (status === "running" && !timing.end && !event.endedAt) continue;
+    const endAt = timestamp(endValue, new Date(Date.parse(startAt) + 1).toISOString());
+    const durationMs = Math.max(0, Date.parse(endAt) - Date.parse(startAt));
+    log(status === "error" || status === "failed" ? "tool.error" : "tool.done", {
+      ...base,
+      at: endAt,
+      durationMs,
+      status: status === "error" || status === "failed" ? "error" : "ok"
+    });
+    opened.delete(toolCallId);
+  }
+}
+
 /**
  * Запускает фазу с fallback по моделям роли.
  *
@@ -160,26 +206,46 @@ export async function runPhase({
   avoidProvider = "",
   excludeModels = [],
   log = () => {},
-  env = process.env
+  env = process.env,
+  spawnImpl = spawnOpencode
 }) {
   if (timeoutMs <= 0) {
-    return { kind: "budget", reason: "run time budget exhausted before phase start", metrics: { tokenTotal: 0 }, model: "", fallbacks: 0 };
+    return { kind: "budget", reason: "run time budget exhausted before phase start", metrics: { tokenTotal: 0, cost: 0 }, model: "", fallbacks: 0 };
   }
   const contextTokens = estimateTokens(prompt.length);
   const estimate = estimatePhaseTokens(role, { contextTokens });
+  const phaseDeadline = Date.now() + timeoutMs;
   const candidates = session.candidates(role, { avoidProvider, exclude: excludeModels });
   let fallbacks = 0;
   let lastReason = "no model available";
+  let lastInfrastructure = null;
   let totalTokens = 0;
   let totalBudgetTokens = 0;
+  let totalCost = 0;
 
   if (candidates.length === 0) {
-    return { kind: "exhausted", reason: `no available model for role ${role}`, metrics: { tokenTotal: 0 }, model: "", fallbacks };
+    return { kind: "exhausted", reason: `no available model for role ${role}`, metrics: { tokenTotal: 0, cost: 0 }, model: "", fallbacks };
   }
 
   for (let index = 0; index < candidates.length; index += 1) {
+    const remainingMs = phaseDeadline - Date.now();
+    if (remainingMs <= 0) {
+      return {
+        kind: lastInfrastructure ? "infra" : "budget",
+        reason: lastInfrastructure?.reason || "phase time budget exhausted before model start",
+        metrics: { tokenTotal: totalTokens, budgetTokens: totalBudgetTokens, cost: totalCost },
+        model: lastInfrastructure?.model || "",
+        fallbacks,
+        durationMs: Date.now() - (phaseDeadline - timeoutMs)
+      };
+    }
+
     const reserved = await session.reserve(role, {
       estimateTokens: estimate,
+      maxWaitMs: Math.min(
+        Number(env.FA_RATE_WAIT_MAX_SEC || 45) * 1000,
+        Math.max(0, remainingMs - 1000)
+      ),
       avoidProvider,
       exclude: [...excludeModels, ...candidates.slice(0, index).map((item) => item.id)]
     });
@@ -189,9 +255,19 @@ export async function runPhase({
         return {
           kind: "budget",
           reason: reserved.reason,
-          metrics: { tokenTotal: totalTokens, budgetTokens: totalBudgetTokens },
+          metrics: { tokenTotal: totalTokens, budgetTokens: totalBudgetTokens, cost: totalCost },
           model: "",
           fallbacks
+        };
+      }
+      if (lastInfrastructure) {
+        return {
+          kind: "infra",
+          reason: `${lastInfrastructure.reason}; no fallback model available: ${reserved.reason}`,
+          metrics: { tokenTotal: totalTokens, budgetTokens: totalBudgetTokens, cost: totalCost },
+          model: lastInfrastructure.model,
+          fallbacks,
+          durationMs: Date.now() - (phaseDeadline - timeoutMs)
         };
       }
       break;
@@ -203,44 +279,74 @@ export async function runPhase({
     const stderrFile = join(runDir, `${fileBase}-${fileSuffix}.err.log`);
     writeFileSync(stdoutFile, "", "utf8");
     writeFileSync(stderrFile, "", "utf8");
-    const selectedAgent = model.dailyLimit ? "fa-scarce" : agent;
+    const selectedAgent = model.scarce === true ? "fa-scarce" : agent;
+    const started = Date.now();
+    const providerEnv = session.providerEnv(model, env);
+    const remainingForModelMs = phaseDeadline - Date.now();
+    if (remainingForModelMs <= 0) {
+      session.release(reserved.reservation);
+      return {
+        kind: lastInfrastructure ? "infra" : "budget",
+        reason: lastInfrastructure?.reason || "phase time budget exhausted before model start",
+        metrics: { tokenTotal: totalTokens, budgetTokens: totalBudgetTokens, cost: totalCost },
+        model: lastInfrastructure?.model || "",
+        fallbacks,
+        durationMs: Date.now() - (phaseDeadline - timeoutMs)
+      };
+    }
+    const modelBudgetMs = index + 1 < candidates.length
+      ? Math.max(60_000, Math.floor(remainingForModelMs / 2))
+      : remainingForModelMs;
+    const modelTimeoutMs = Math.min(remainingForModelMs, LIMITS.modelTimeoutMs, modelBudgetMs);
     log("model.start", {
       task: taskId,
       phase: role,
       model: model.id,
       agent: selectedAgent,
-      message: `${model.id} (${index + 1}/${candidates.length})${model.dailyLimit ? " single-turn" : ""}`
+      message: `${model.id} (${index + 1}/${candidates.length}, timeout ${Math.round(modelTimeoutMs / 1000)}s)${model.scarce === true ? " single-turn" : ""}`
     });
-
-    const started = Date.now();
-    const providerEnv = session.providerEnv(model, env);
-    const result = await spawnOpencode({
+    const result = await spawnImpl({
       args: ["run", "--agent", selectedAgent, "--model", model.id, "--format", "json", "--auto", "--title", title, prompt],
-      timeoutMs,
+      timeoutMs: modelTimeoutMs,
       env: providerEnv
     });
     writeFileSync(stdoutFile, result.stdout || "", "utf8");
     writeFileSync(stderrFile, result.stderr || "", "utf8");
+    recordToolSpans(stdoutFile, { taskId, role, model: model.id, log });
 
     const metrics = analyzeFile(stdoutFile);
     totalTokens += metrics.tokenTotal;
     totalBudgetTokens += metrics.tokenTotal > 0 ? metrics.tokenTotal : estimate;
+    totalCost += metrics.cost || 0;
     const durationMs = Date.now() - started;
 
     if (result.spawnError || result.timedOut) {
-      session.failover(reserved.reservation, "unavailable", result.spawnError?.message || "timeout");
-      const reason = result.spawnError?.message || `timeout after ${Math.round(timeoutMs / 1000)}s`;
+      const reason = result.spawnError?.message || `timeout after ${Math.round(modelTimeoutMs / 1000)}s`;
+      session.failover(reserved.reservation, "unavailable", reason, metrics.tokenTotal);
       log("model.infra", { task: taskId, phase: role, model: model.id, message: reason });
-      return {
-        kind: "infra",
-        reason,
-        metrics: { ...metrics, tokenTotal: totalTokens, budgetTokens: totalBudgetTokens },
+      lastReason = reason;
+      lastInfrastructure = { reason, model: model.id, stdoutFile, stderrFile, durationMs };
+      if (index + 1 >= candidates.length) {
+        return {
+          kind: "infra",
+          reason,
+          metrics: { ...metrics, tokenTotal: totalTokens, budgetTokens: totalBudgetTokens, cost: totalCost },
+          model: model.id,
+          stdoutFile,
+          stderrFile,
+          durationMs,
+          fallbacks
+        };
+      }
+      fallbacks += 1;
+      const failureType = result.timedOut ? "timeout" : "spawn error";
+      log("model.fallback", {
+        task: taskId,
+        phase: role,
         model: model.id,
-        stdoutFile,
-        stderrFile,
-        durationMs,
-        fallbacks
-      };
+        message: `${model.id} -> ${candidates[index + 1].id} (${failureType}): ${sanitize(reason).slice(0, 200)}`
+      });
+      continue;
     }
 
     if (result.code !== 0) {
@@ -272,10 +378,19 @@ export async function runPhase({
         continue;
       }
       session.failover(reserved.reservation, category, detail);
+      log("model.error", {
+        task: taskId,
+        phase: role,
+        model: model.id,
+        category,
+        durationMs,
+        tokens: metrics.tokenTotal,
+        message: "model call failed without a retryable fallback"
+      });
       return {
         kind: category === "other" ? "attempt" : "exhausted",
         reason: `opencode exit ${result.code}: ${detail}`,
-        metrics: { ...metrics, tokenTotal: totalTokens, budgetTokens: totalBudgetTokens },
+        metrics: { ...metrics, tokenTotal: totalTokens, budgetTokens: totalBudgetTokens, cost: totalCost },
         model: model.id,
         stdoutFile,
         stderrFile,
@@ -294,7 +409,7 @@ export async function runPhase({
         kind: "blocked",
         reason: blocked,
         text,
-        metrics: { ...metrics, tokenTotal: totalTokens, budgetTokens: totalBudgetTokens },
+        metrics: { ...metrics, tokenTotal: totalTokens, budgetTokens: totalBudgetTokens, cost: totalCost },
         model: model.id,
         stdoutFile,
         stderrFile,
@@ -308,7 +423,7 @@ export async function runPhase({
         kind: "attempt",
         reason: `phase ${role} finished without marker ${markers.map(String).join("/")}`,
         text,
-        metrics: { ...metrics, tokenTotal: totalTokens, budgetTokens: totalBudgetTokens },
+        metrics: { ...metrics, tokenTotal: totalTokens, budgetTokens: totalBudgetTokens, cost: totalCost },
         model: model.id,
         stdoutFile,
         stderrFile,
@@ -321,7 +436,7 @@ export async function runPhase({
       kind: "ok",
       reason: "",
       text,
-      metrics: { ...metrics, tokenTotal: totalTokens, budgetTokens: totalBudgetTokens },
+      metrics: { ...metrics, tokenTotal: totalTokens, budgetTokens: totalBudgetTokens, cost: totalCost },
       model: model.id,
       stdoutFile,
       stderrFile,
@@ -333,7 +448,7 @@ export async function runPhase({
   return {
     kind: "exhausted",
     reason: lastReason,
-    metrics: { tokenTotal: totalTokens, budgetTokens: totalBudgetTokens },
+    metrics: { tokenTotal: totalTokens, budgetTokens: totalBudgetTokens, cost: totalCost },
     model: candidates[candidates.length - 1]?.id || "",
     fallbacks,
     durationMs: 0

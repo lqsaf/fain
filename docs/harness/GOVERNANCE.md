@@ -54,7 +54,7 @@ FA не может их менять. Изменения делает челов
 
 ## Ветки и PR
 
-- `main` защищён: только PR, обязательный `fa-verify`, запрет force-push.
+- `main` защищён: только PR, обязательный `fa-verify`, запрет force-push и обязательное одобрение Code Owner для совпавших с `CODEOWNERS` чувствительных файлов. В настройках branch protection включить `Require review from Code Owners`.
 - FA пушит только `fa/work`.
 - `.githooks/pre-push` отказывает в push в `main`/`master`.
 - Merge делает человек; авто-merge выключен.
