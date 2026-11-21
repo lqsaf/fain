@@ -131,8 +131,7 @@ function detectMarker(text, markers = []) {
 function detectBlocked(text, reason) {
   const match = String(text || "").match(/(?:^|\n)\s*BLOCKED:\s*([^\n]+)/i);
   if (match) return match[1].trim();
-  if (/\bBLOCKED\b/i.test(String(text || ""))) return "model reported BLOCKED without a reason";
-  if (reason && /\bBLOCKED\b/i.test(reason)) return reason;
+  if (reason && /(?:^|\n)\s*BLOCKED:\s*[^\n]+/i.test(reason)) return reason;
   return "";
 }
 
