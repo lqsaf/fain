@@ -196,9 +196,9 @@ jobs:
           FA_MAX_ATTEMPTS: ${{ vars.FA_MAX_ATTEMPTS }}
           FA_TOKEN_BUDGET: ${{ vars.FA_TOKEN_BUDGET }}
           FA_MAX_INFRA_FAILURES: ${{ vars.FA_MAX_INFRA_FAILURES }}
-          FA_NVIDIA_RPM: ${{ vars.FA_NVIDIA_RPM }}
-          FA_NVIDIA_TPM: ${{ vars.FA_NVIDIA_TPM }}
-          FA_NVIDIA_RPD: ${{ vars.FA_NVIDIA_RPD }}
+          FA_NVIDIA_RPM: ${{ vars.FA_NVIDIA_RPM || '10' }}
+          FA_NVIDIA_TPM: ${{ vars.FA_NVIDIA_TPM || '250000' }}
+          FA_NVIDIA_RPD: ${{ vars.FA_NVIDIA_RPD || '1000' }}
           OTEL_EXPORTER_OTLP_ENDPOINT: ${{ vars.OTEL_EXPORTER_OTLP_ENDPOINT }}
           OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ${{ vars.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT }}
           OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
