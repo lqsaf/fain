@@ -62,7 +62,7 @@ FA task queue
   `node scripts/verify.mjs` проходит.
 - done: 2026-11-18T19:12:21.964Z
 
-## [ ] T04 · Настройки 2.0: аккордеон
+## [!] T04 · Настройки 2.0: аккордеон
 - area: frontend
 - priority: high
 - files: settings.html, js/settings.js, js/ui.js, js/data.js, css/styles.css
@@ -79,6 +79,7 @@ FA task queue
   T03 не регрессирует: нет вспышки темы после reload, top-panel прозрачна, inline-скрипт в `<head>` обеих страниц сохранён.
   `npm run verify` и `npm run verify:ui` проходят.
 
+- blocked: 2026-11-21T20:40:43.779Z · `npm run verify` не может пройти `checkSelftest` (`scripts/fa/selftest.mjs`, проверка `prompts.contract`), которая требует, чтобы acceptance задачи T04 в защищённом `TASKS.md` содержал маркеры `role="combobox"`, `aria-activedescendant`, `role="listbox"`, `role="option"`, `AbortController`, `.custom-css-area`; в текущем acceptance T04 их нет (относятся к T16/T24–T27), править `TASKS.md` запрещено, поэтому без участия человека `npm run verify` не станет зелёным независимо от реализации кода.
 ## [ ] T24 · Настройки 2.0: inline combobox
 - area: frontend
 - priority: high
