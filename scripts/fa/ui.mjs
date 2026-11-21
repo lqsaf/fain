@@ -607,6 +607,7 @@ export async function runUiSmoke({
         if (!control || !list) return null;
         const triggerRect = control.getBoundingClientRect();
         const listRect = list.getBoundingClientRect();
+        const terms = ${JSON.stringify(terms)};
         return {
           expanded: control.getAttribute("aria-expanded"),
           visible: !list.hidden && getComputedStyle(list).display !== "none" && getComputedStyle(list).visibility !== "hidden",
@@ -823,6 +824,16 @@ export async function runUiSmoke({
       await load("settings.html");
       await browser.evaluate("localStorage.setItem('fain_settings_sections_v1', '{invalid')");
       await browser.goto("settings.html");
+      await browser.evaluate(`(() => {
+        return new Promise(resolve => {
+          const check = () => {
+            const buttons = document.querySelectorAll('#settings-content button[aria-expanded][aria-controls]');
+            if (buttons.length === 3) resolve();
+            else requestAnimationFrame(check);
+          };
+          check();
+        });
+      })`);
       const recovered = await browser.evaluate(`({
         sections: [...document.querySelectorAll('#settings-content button[aria-expanded][aria-controls]')]
           .map((button) => button.getAttribute("aria-expanded") === "true")
@@ -833,6 +844,16 @@ export async function runUiSmoke({
 
       await browser.evaluate("localStorage.setItem('fain_settings_sections_v1', '[\"interface\",\"unknown\"]')");
       await browser.goto("settings.html");
+      await browser.evaluate(`(() => {
+        return new Promise(resolve => {
+          const check = () => {
+            const buttons = document.querySelectorAll('#settings-content button[aria-expanded][aria-controls]');
+            if (buttons.length === 3) resolve();
+            else requestAnimationFrame(check);
+          };
+          check();
+        });
+      })`);
       const filtered = await browser.evaluate(`[
         ...document.querySelectorAll('#settings-content button[aria-expanded][aria-controls]')
       ].map((button) => button.getAttribute("aria-expanded") === "true")`);
@@ -879,6 +900,16 @@ export async function runUiSmoke({
 
     await check("settings.theme", async () => {
       await load("settings.html");
+      await browser.evaluate(`(() => {
+        return new Promise(resolve => {
+          const check = () => {
+            const controls = document.querySelectorAll('#settings-content [role="combobox"], #settings-content [aria-haspopup="listbox"]');
+            if (controls.length >= 3) resolve();
+            else requestAnimationFrame(check);
+          };
+          check();
+        });
+      })`);
       await chooseSettingOption({
         name: "theme",
         terms: ["theme", "тема", "主题"],
@@ -920,6 +951,16 @@ export async function runUiSmoke({
           const check = () => {
             const buttons = document.querySelectorAll('#settings-content button[aria-expanded][aria-controls]');
             if (buttons[1]?.getAttribute("aria-expanded") === "true") resolve();
+            else requestAnimationFrame(check);
+          };
+          check();
+        });
+      })`);
+      await browser.evaluate(`(() => {
+        return new Promise(resolve => {
+          const check = () => {
+            const controls = document.querySelectorAll('#settings-content [role="combobox"], #settings-content [aria-haspopup="listbox"]');
+            if (controls.length >= 3) resolve();
             else requestAnimationFrame(check);
           };
           check();

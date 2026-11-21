@@ -747,6 +747,16 @@ async function phaseRepair({ task, context, plan, verify, ui, attempt, round }) 
     saveCheckpoint(state.runId, { patch: checkpointPatch(), meta: { phase: "repair", round } });
     persistState("verify", { attempt, artifacts: { checkpoint: join(run.dir, "checkpoint.json") } });
   }
+  if (result.kind === "infra") {
+    return {
+      kind: "blocked",
+      reason: `repair phase exhausted all models: ${result.reason}`,
+      metrics: result.metrics,
+      model: result.model,
+      durationMs: result.durationMs,
+      fallbacks: result.fallbacks
+    };
+  }
   return result;
 }
 
@@ -1076,8 +1086,9 @@ async function attemptTask(task, attempt) {
       }
       if (repaired.kind !== "ok") {
         git.revertWorktree();
+        const terminal = ["exhausted", "budget", "infra"].includes(repaired.kind);
         return {
-          kind: ["exhausted", "budget"].includes(repaired.kind) ? repaired.kind : "attempt",
+          kind: terminal ? repaired.kind : "attempt",
           reason: repaired.reason || review.reason,
           metrics: repaired.metrics,
           model: repaired.model,
