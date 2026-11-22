@@ -4,6 +4,9 @@ compatibility_date = "2026-11-11"
 workers_dev = true
 preview_urls = true
 
+[triggers]
+crons = ["0 * * * *"]
+
 [[kv_namespaces]]
 binding = "FAIN_KV"
 id = "f6313aed59294ebaa51865a4103c098f"
