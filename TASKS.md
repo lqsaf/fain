@@ -62,7 +62,7 @@ FA task queue
   `node scripts/verify.mjs` проходит.
 - done: 2026-11-18T19:12:21.964Z
 
-## [ ] T04 · Настройки 2.0: аккордеон
+## [!] T04 · Настройки 2.0: аккордеон
 - area: frontend
 - priority: high
 - files: settings.html, js/settings.js, js/ui.js, js/data.js, css/styles.css
@@ -79,6 +79,7 @@ FA task queue
   T03 не регрессирует: нет вспышки темы после reload, top-panel прозрачна, inline-скрипт в `<head>` обеих страниц сохранён.
   `npm run verify` и `npm run verify:ui` проходят.
 
+- blocked: 2026-11-23T13:48:07.081Z · plan review failed: e trigger and its removal. | | **minor** | Step 3 | Single `document` click-outside handler "attached once at module load" — good. Ensure it's registered in module scope (not inside `renderSettingsPage`) so re-renders don't duplicate listeners. | No **blocker** or **major** issues. All acceptance criteria are mapped to concrete steps and verifications. Protected files (`settings.html`, `js/ui.js`) are explicitly not modified. Accessibility requirements (ARIA roles, keyboard, 
 ## [ ] T24 · Настройки 2.0: inline combobox
 - area: frontend
 - priority: high
