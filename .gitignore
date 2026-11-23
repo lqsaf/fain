@@ -11,14 +11,6 @@ node_modules/
 .env.*
 !.env.example
 
-# FA runtime artifacts
-fa/logs/
-fa/state/
-fa/memory/
-fa/tmp/
-fa/eval/
-FA_STOP
-
 # local tooling
 *.log
 .DS_Store
